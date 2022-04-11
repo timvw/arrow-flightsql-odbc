@@ -14,6 +14,20 @@ docker run --rm -it odbc isql -v testodbc1 $SNOW_USER $SNOW_PASS
 Test connection, not using odbc.ini
 
 ```bash
-docker run --rm -it odbc isql -k "Driver=/usr/lib/snowflake/odbc/lib/libSnowflake.so;server=dt28750.eu-central-1.snowflakecomputing.com;UID=$SNOW_USER;PWD=$SNOW_PASS"
+export SNOW_URL=XXX
+export SNOW_USER=XXX
+export SNOW_PASS=XXX
+export SNOW_DATABASE=XXX
+export SNOW_WAREHOUSE=XXX
+export SNOW_DRIVER=/usr/lib/snowflake/odbc/lib/libSnowflake.so
+export SNOW_DSN="Driver=${SNOW_DRIVER};server=${SNOW_URL};UID=${SNOW_USER};PWD=${SNOW_PASS};database=${SNOW_DATABASE};warehouse=${SNOW_WAREHOUSE}"
+
+docker run --rm -it odbc isql -k "${SNOW_DSN}"
 ```
+
+
+docker build . -f ./deploy/Dockerfile -t odbc
+docker run --rm -it --env-file ./.dockerenv odbc /bin/bash
+
+
 
