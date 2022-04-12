@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
 
+    //intellij does not easily find types when not adding code to src
     //tonic_build::compile_protos("proto/Flight.proto")?;
     //tonic_build::compile_protos("proto/FlightSql.proto")?;
 
