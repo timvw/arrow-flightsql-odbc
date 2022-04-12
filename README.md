@@ -39,5 +39,11 @@ docker build . -f ./deploy/Dockerfile -t odbc
 docker run --rm -it --env-file ./.dockerenv odbc /bin/bash
 
 
+grpcurl -plaintext 127.0.0.1:50051 list
+grpcurl -plaintext 127.0.0.1:50051 describe arrow.flight.protocol.FlightService
+
+
+
+
 
 
