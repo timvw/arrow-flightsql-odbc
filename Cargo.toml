@@ -18,6 +18,8 @@ arrow = "11.1.0"
 futures-core = "0.3.21"
 log = { version = "0.4.16", features = ["kv_unstable"] }
 env_logger = "0.9.0"
+tokio-stream = "0.1.8"
+async-stream = "0.3.3"
 
 [build-dependencies]
 tonic-build = "0.7"
