@@ -1,14 +1,24 @@
-# ARROW FLight SQL ODBC
+# Apache Arrow - FLight SQL - ODBC
 
-Build container with snowflake odbc driver
+Ideally databases expose an Apache Arrow Flight SQL service immediately.
+Meanwhile, this project aims to implement an Apache Arrow Flight SQL server for ODBC data sources.
+
+Links:
+* https://arrow.apache.org/
+* https://arrow.apache.org/docs/format/Flight.html
+* https://arrow.apache.org/blog/2022/02/16/introducing-arrow-flight-sql/
+
+Protocols:
+* [Flight](https://github.com/apache/arrow/blob/master/format/Flight.proto)
+* [FlightSql](https://github.com/apache/arrow/blob/master/format/FlightSql.proto)
+
+
+## Development - Testing
+
+Build container with snowflake and mariadb odbc drivers
 
 ```bash
 docker build ./deploy -f ./deploy/Dockerfile -t odbc
-```
-
-Test connection to snowflake (assumes you have SNOW_USER and SNOW_PASS envioronment variables)
-```bash
-docker run --rm -it odbc isql -v testodbc1 $SNOW_USER $SNOW_PASS
 ```
 
 Test connection, not using odbc.ini
@@ -25,16 +35,9 @@ export SNOW_DSN="Driver=${SNOW_DRIVER};server=${SNOW_URL};UID=${SNOW_USER};PWD=$
 docker run --rm -it odbc isql -k "${SNOW_DSN}"
 ```
 
-
 docker build . -f ./deploy/Dockerfile -t odbc
 docker run --rm -it --env-file ./.dockerenv odbc /bin/bash
 
-Get flight proto:
-https://github.com/apache/arrow/blob/master/format/Flight.proto
-
-
-Get flight sql proto: 
-https://github.com/apache/arrow/blob/master/format/FlightSql.proto
 
 
 
