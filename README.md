@@ -29,5 +29,12 @@ docker run --rm -it odbc isql -k "${SNOW_DSN}"
 docker build . -f ./deploy/Dockerfile -t odbc
 docker run --rm -it --env-file ./.dockerenv odbc /bin/bash
 
+Get flight proto:
+https://github.com/apache/arrow/blob/master/format/Flight.proto
+
+
+Get flight sql proto: 
+https://github.com/apache/arrow/blob/master/format/FlightSql.proto
+
 
 
