@@ -11,8 +11,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let addr = "0.0.0.0:50051".parse()?;
     let myserver = MyServer::new();
 
+    let reflection_server = tonic_reflection::server::Builder::configure()
+        .register_encoded_file_descriptor_set(arrow_flightsql_odbc::FLIGHT_DESCRIPTOR_SET)
+        .register_encoded_file_descriptor_set(arrow_flightsql_odbc::FLIGHT_SQL_DESCRIPTOR_SET)
+        .build()?;
+
     Server::builder()
         .add_service(FlightServiceServer::new(myserver))
+        .add_service(reflection_server)
         .serve(addr)
         .await?;
 
