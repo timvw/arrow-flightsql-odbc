@@ -638,11 +638,3 @@ where
         Err(Status::unimplemented("Not yet implemented"))
     }
 }
-
-fn decode_error_to_status(err: prost::DecodeError) -> tonic::Status {
-    tonic::Status::invalid_argument(format!("{:?}", err))
-}
-
-fn arrow_error_to_status(err: arrow::error::ArrowError) -> tonic::Status {
-    tonic::Status::internal(format!("{:?}", err))
-}
