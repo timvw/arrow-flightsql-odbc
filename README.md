@@ -12,6 +12,7 @@ Protocols:
 * [Flight](https://github.com/apache/arrow/blob/master/format/Flight.proto)
 * [FlightSql](https://github.com/apache/arrow/blob/master/format/FlightSql.proto)
 
+Some code is copied from https://github.com/apache/arrow-rs/tree/master/arrow-flight/src/sql
 
 ## Development - Testing
 
