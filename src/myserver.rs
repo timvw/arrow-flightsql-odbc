@@ -11,11 +11,14 @@ use prost_types::Any;
 use arrow::error::{ArrowError, Result as ArrowResult};
 
 #[derive(Debug)]
-pub struct MyServer {}
+pub struct MyServer {
+    odbc_connection_string: String,
+}
 
 impl MyServer {
-    pub fn new() -> MyServer {
+    pub fn new(odbc_connection_string: String) -> MyServer {
         MyServer {
+            odbc_connection_string
         }
     }
 
