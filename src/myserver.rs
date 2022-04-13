@@ -9,6 +9,8 @@ use crate::arrow_flight_protocol_sql::*;
 use prost::Message;
 use prost_types::Any;
 use arrow::error::{ArrowError, Result as ArrowResult};
+use arrow_odbc::{odbc_api, OdbcReader};
+use arrow_odbc::odbc_api::Environment;
 
 #[derive(Debug)]
 pub struct MyServer {
@@ -108,7 +110,54 @@ impl FlightService for MyServer {
     type DoGetStream = ReceiverStream<Result<FlightData, Status>>;
 
     async fn do_get(&self, request: Request<Ticket>) -> Result<Response<Self::DoGetStream>, Status> {
-        todo!()
+
+        let (mut tx, rx) = mpsc::channel(100);
+        let cstr = self.odbc_connection_string.clone();
+
+        tokio::task::block_in_place(move || {
+        //tokio::spawn(async move {
+
+            let odbc_environment = Environment::new()
+                .expect("failed to create odbc_env");
+            //.map_err(odbc_api_err_to_status)?;
+
+            let connection = odbc_environment
+                .connect_with_connection_string(cstr.as_str())
+                //.map_err(odbc_api_err_to_status)?;
+                .expect("failed to connect");
+
+            let parameters = ();
+
+            let cursor = connection
+                .execute("SELECT * FROM dataquality.checks LIMIT 10", parameters)
+                .map_err(odbc_api_err_to_status)?
+                .expect("SELECT statement must produce a cursor");
+
+            let max_batch_size = 3;
+
+            let arrow_record_batches = OdbcReader::new(cursor, max_batch_size)
+                //.map_err(arrow_odbc_err_to_status)?;
+                .expect("failed to create odbc reader");
+
+            for batch in arrow_record_batches {
+
+                let flight_data = FlightData{
+                    flight_descriptor: None,
+                    data_header: vec![],
+                    app_metadata: vec![],
+                    data_body: vec![]
+                };
+
+               //tx.send(Ok(flight_data));//.await.expect("failed to send batch.."); //;;.await.unwrap();
+                log::info!("sending a batch back to the client");
+                tx.blocking_send(Ok(flight_data)).expect("failed to send batch..");
+            }
+
+            let result: Result<bool, Status> = Ok(true);
+            result
+        });
+
+        Ok(Response::new(ReceiverStream::new(rx)))
     }
 
     type DoPutStream = ReceiverStream<Result<PutResult, Status>>;
@@ -134,6 +183,14 @@ impl FlightService for MyServer {
     async fn list_actions(&self, request: Request<Empty>) -> Result<Response<Self::ListActionsStream>, Status> {
         todo!()
     }
+}
+
+fn odbc_api_err_to_status(err: odbc_api::Error) -> tonic::Status {
+    tonic::Status::internal(format!("{:?}", err))
+}
+
+fn arrow_odbc_err_to_status(err: arrow_odbc::Error) -> tonic::Status {
+    tonic::Status::internal(format!("{:?}", err))
 }
 
 fn decode_error_to_status(err: prost::DecodeError) -> tonic::Status {

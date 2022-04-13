@@ -1,5 +1,5 @@
 use arrow_flightsql_odbc::arrow_flight_protocol::flight_service_client::FlightServiceClient;
-use arrow_flightsql_odbc::arrow_flight_protocol::{Criteria, FlightDescriptor};
+use arrow_flightsql_odbc::arrow_flight_protocol::{Criteria, FlightDescriptor, Ticket};
 use arrow_flightsql_odbc::arrow_flight_protocol::flight_descriptor::DescriptorType;
 use arrow_flightsql_odbc::arrow_flight_protocol_sql::CommandStatementQuery;
 use prost::Message;
@@ -44,6 +44,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     while let Some(action_type) = action_types.message().await? {
         println!("action type: {} desc: {}", action_type.r#type, action_type.description);
     }*/
+
+    let mut fds = client
+        .do_get(Ticket{ ticket: vec![] })
+        .await?
+        .into_inner();
+
+    while let Some(fd) = fds.message().await? {
+        print!("received a batch of data.. ");
+    }
 
     Ok(())
 }

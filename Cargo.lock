@@ -45,6 +45,7 @@ dependencies = [
 name = "arrow-flightsql-odbc"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "arrow",
  "arrow-odbc",
  "async-stream",
