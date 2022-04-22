@@ -6,7 +6,7 @@ use futures::StreamExt;
 use arrow_flightsql_odbc::arrow_flight_protocol::flight_service_client::FlightServiceClient;
 use arrow_flightsql_odbc::arrow_flight_protocol::{Criteria, FlightData, FlightDescriptor, FlightInfo, Ticket};
 use arrow_flightsql_odbc::arrow_flight_protocol::flight_descriptor::DescriptorType;
-use arrow_flightsql_odbc::arrow_flight_protocol_sql::{CommandGetCatalogs, CommandStatementQuery};
+use arrow_flightsql_odbc::arrow_flight_protocol_sql::{CommandGetCatalogs, CommandGetTableTypes, CommandStatementQuery};
 use prost::Message;
 use tonic::transport::Channel;
 use arrow_flightsql_odbc::myserver::*;
@@ -56,6 +56,10 @@ fn cli() -> Command<'static> {
             Command::new("GetCatalogs")
                 .about("Get catalogs")
         )
+        .subcommand(
+            Command::new("GetTableTypes")
+                .about("Get table types")
+        )
 }
 
 #[tokio::main]
@@ -84,6 +88,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(("GetCatalogs", sub_matches)) => {
             get_catalogs(client).await;
         }
+        Some(("GetTableTypes", sub_matches)) => {
+            get_table_types(client).await;
+        }
         _ => unreachable!(), // If all subcommands are defined above, anything else is unreachabe!()
     }
 
@@ -111,10 +118,8 @@ async fn execute(mut client: FlightServiceClient<Channel>, query: String) -> Res
 
 async fn get_catalogs(mut client: FlightServiceClient<Channel>) -> Result<(), ClientError> {
 
-
     let any = prost_types::Any::pack(&CommandGetCatalogs { })?;
 
-    /*
     let fi = client
         .get_flight_info(FlightDescriptor{
             r#type: DescriptorType::Cmd as i32,
@@ -125,14 +130,23 @@ async fn get_catalogs(mut client: FlightServiceClient<Channel>) -> Result<(), Cl
         .into_inner();
 
     print_flight_info_results(client, fi)
-        .await?;*/
+        .await
+}
 
-    let mut flight_data_stream = client
-        .do_get(Ticket { ticket: any.encode_to_vec() })
+async fn get_table_types(mut client: FlightServiceClient<Channel>) -> Result<(), ClientError> {
+
+    let any = prost_types::Any::pack(&CommandGetTableTypes { })?;
+
+    let fi = client
+        .get_flight_info(FlightDescriptor{
+            r#type: DescriptorType::Cmd as i32,
+            cmd: any.encode_to_vec(),
+            path: vec![]
+        })
         .await?
         .into_inner();
 
-    print_flight_data_stream(&mut flight_data_stream)
+    print_flight_info_results(client, fi)
         .await
 }
 
