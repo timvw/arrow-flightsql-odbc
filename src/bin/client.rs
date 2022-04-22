@@ -4,7 +4,7 @@ use arrow::ipc::{convert, MessageHeader};
 use arrow_flightsql_odbc::arrow_flight_protocol::flight_service_client::FlightServiceClient;
 use arrow_flightsql_odbc::arrow_flight_protocol::{FlightData, FlightDescriptor, FlightInfo};
 use arrow_flightsql_odbc::arrow_flight_protocol::flight_descriptor::DescriptorType;
-use arrow_flightsql_odbc::arrow_flight_protocol_sql::{CommandGetCatalogs, CommandGetDbSchemas, CommandGetTables, CommandGetTableTypes, CommandStatementQuery};
+use arrow_flightsql_odbc::arrow_flight_protocol_sql::{CommandGetCatalogs, CommandGetDbSchemas, CommandGetExportedKeys, CommandGetImportedKeys, CommandGetPrimaryKeys, CommandGetTables, CommandGetTableTypes, CommandStatementQuery};
 use prost::Message;
 use tonic::transport::Channel;
 use arrow_flightsql_odbc::myserver::*;
@@ -78,6 +78,39 @@ fn cli() -> Command<'static> {
                 .arg(arg!([table])
                     .help("The table to use"))
         )
+        .subcommand(
+            Command::new("GetExportedKeys")
+                .about("Get exported keys")
+                .arg(arg!(<table>)
+                    .help("The table to use"))
+                .arg_required_else_help(true)
+                .arg(arg!([catalog])
+                    .help("The catalog to use"))
+                .arg(arg!([schema])
+                    .help("Specifies a filter pattern for schemas to search for. When no db_schema_filter_pattern is provided, the pattern will not be used to narrow the search."))
+        )
+        .subcommand(
+            Command::new("GetImportedKeys")
+                .about("Get imported keys")
+                .arg(arg!(<table>)
+                    .help("The table to use"))
+                .arg_required_else_help(true)
+                .arg(arg!([catalog])
+                    .help("The catalog to use"))
+                .arg(arg!([schema])
+                    .help("Specifies a filter pattern for schemas to search for. When no db_schema_filter_pattern is provided, the pattern will not be used to narrow the search."))
+        )
+        .subcommand(
+            Command::new("GetPrimaryKeys")
+                .about("Get primary keys")
+                .arg(arg!(<table>)
+                    .help("The table to use"))
+                .arg_required_else_help(true)
+                .arg(arg!([catalog])
+                    .help("The catalog to use"))
+                .arg(arg!([schema])
+                    .help("Specifies a filter pattern for schemas to search for. When no db_schema_filter_pattern is provided, the pattern will not be used to narrow the search."))
+        )
 }
 
 #[tokio::main]
@@ -120,6 +153,25 @@ async fn main() -> Result<(), ClientError> {
             let table = sub_matches.value_of("table").map(|x| x.to_string());
             get_tables(client, catalog, schema, table).await
         }
+        Some(("GetExportedKeys", sub_matches)) => {
+            let catalog = sub_matches.value_of("catalog").map(|x| x.to_string());
+            let schema = sub_matches.value_of("schema").map(|x| x.to_string());
+            let table = sub_matches.value_of("table").expect("'TABLE' is required").to_string();
+            get_exported_keys(client, catalog, schema, table).await
+        }
+        Some(("GetImportedKeys", sub_matches)) => {
+            let catalog = sub_matches.value_of("catalog").map(|x| x.to_string());
+            let schema = sub_matches.value_of("schema").map(|x| x.to_string());
+            let table = sub_matches.value_of("table").expect("'TABLE' is required").to_string();
+            get_imported_keys(client, catalog, schema, table).await
+        }
+        Some(("GetPrimaryKeys", sub_matches)) => {
+            let catalog = sub_matches.value_of("catalog").map(|x| x.to_string());
+            let schema = sub_matches.value_of("schema").map(|x| x.to_string());
+            let table = sub_matches.value_of("table").expect("'TABLE' is required").to_string();
+            get_primary_keys(client, catalog, schema, table).await
+        }
+
         _ => unreachable!(), // If all subcommands are defined above, anything else is unreachabe!()
     }
 }
@@ -128,6 +180,42 @@ async fn execute(client: FlightServiceClient<Channel>, query: String) -> Result<
 
     let fi = get_flight_descriptor_for_command(client.clone(), &CommandStatementQuery { query })
         .await?;
+
+    print_flight_info_results(client, fi)
+        .await
+}
+
+async fn get_exported_keys(client: FlightServiceClient<Channel>, catalog: Option<String>, schema: Option<String>, table: String) -> Result<(), ClientError> {
+
+    let fi = get_flight_descriptor_for_command(client.clone(), &CommandGetExportedKeys {
+        catalog,
+        db_schema: schema,
+        table
+    }).await?;
+
+    print_flight_info_results(client, fi)
+        .await
+}
+
+async fn get_imported_keys(client: FlightServiceClient<Channel>, catalog: Option<String>, schema: Option<String>, table: String) -> Result<(), ClientError> {
+
+    let fi = get_flight_descriptor_for_command(client.clone(), &CommandGetImportedKeys {
+        catalog,
+        db_schema: schema,
+        table
+    }).await?;
+
+    print_flight_info_results(client, fi)
+        .await
+}
+
+async fn get_primary_keys(client: FlightServiceClient<Channel>, catalog: Option<String>, schema: Option<String>, table: String) -> Result<(), ClientError> {
+
+    let fi = get_flight_descriptor_for_command(client.clone(), &CommandGetPrimaryKeys {
+        catalog,
+        db_schema: schema,
+        table
+    }).await?;
 
     print_flight_info_results(client, fi)
         .await
