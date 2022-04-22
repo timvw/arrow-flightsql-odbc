@@ -4,7 +4,7 @@ use arrow::ipc::{convert, MessageHeader};
 use arrow_flightsql_odbc::arrow_flight_protocol::flight_service_client::FlightServiceClient;
 use arrow_flightsql_odbc::arrow_flight_protocol::{FlightData, FlightDescriptor, FlightInfo};
 use arrow_flightsql_odbc::arrow_flight_protocol::flight_descriptor::DescriptorType;
-use arrow_flightsql_odbc::arrow_flight_protocol_sql::{CommandGetCatalogs, CommandGetDbSchemas, CommandGetTableTypes, CommandStatementQuery};
+use arrow_flightsql_odbc::arrow_flight_protocol_sql::{CommandGetCatalogs, CommandGetDbSchemas, CommandGetTables, CommandGetTableTypes, CommandStatementQuery};
 use prost::Message;
 use tonic::transport::Channel;
 use arrow_flightsql_odbc::myserver::*;
@@ -68,6 +68,16 @@ fn cli() -> Command<'static> {
                 .arg(arg!([schema])
                          .help("Specifies a filter pattern for schemas to search for. When no db_schema_filter_pattern is provided, the pattern will not be used to narrow the search."))
         )
+        .subcommand(
+            Command::new("GetTables")
+                .about("Get tables")
+                .arg(arg!([catalog])
+                    .help("The catalog to use"))
+                .arg(arg!([schema])
+                    .help("Specifies a filter pattern for schemas to search for. When no db_schema_filter_pattern is provided, the pattern will not be used to narrow the search."))
+                .arg(arg!([table])
+                    .help("The table to use"))
+        )
 }
 
 #[tokio::main]
@@ -104,6 +114,12 @@ async fn main() -> Result<(), ClientError> {
             let schema = sub_matches.value_of("schema").map(|x| x.to_string());
             get_schemas(client, catalog, schema).await
         }
+        Some(("GetTables", sub_matches)) => {
+            let catalog = sub_matches.value_of("catalog").map(|x| x.to_string());
+            let schema = sub_matches.value_of("schema").map(|x| x.to_string());
+            let table = sub_matches.value_of("table").map(|x| x.to_string());
+            get_tables(client, catalog, schema, table).await
+        }
         _ => unreachable!(), // If all subcommands are defined above, anything else is unreachabe!()
     }
 }
@@ -112,6 +128,20 @@ async fn execute(client: FlightServiceClient<Channel>, query: String) -> Result<
 
     let fi = get_flight_descriptor_for_command(client.clone(), &CommandStatementQuery { query })
         .await?;
+
+    print_flight_info_results(client, fi)
+        .await
+}
+
+async fn get_tables(client: FlightServiceClient<Channel>, catalog: Option<String>, schema: Option<String>, table: Option<String>) -> Result<(), ClientError> {
+
+    let fi = get_flight_descriptor_for_command(client.clone(), &CommandGetTables {
+        catalog: catalog,
+        db_schema_filter_pattern: schema,
+        table_name_filter_pattern: table,
+        table_types: vec![],
+        include_schema: false,
+    }).await?;
 
     print_flight_info_results(client, fi)
         .await
