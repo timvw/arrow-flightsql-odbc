@@ -8,7 +8,7 @@ WORKDIR /opt/app
 
 # create an empty project
 RUN mkdir -p ./src/bin && \
-    echo "fn main() {}" > ./src/bin/test.rs
+    echo "fn main() {}" > ./src/bin/test.rs.rs
 
 # copy over your manifests
 COPY ./Cargo.lock ./Cargo.lock
