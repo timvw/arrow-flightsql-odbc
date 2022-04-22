@@ -4,7 +4,7 @@ use arrow::ipc::{convert, MessageHeader};
 use arrow_flightsql_odbc::arrow_flight_protocol::flight_service_client::FlightServiceClient;
 use arrow_flightsql_odbc::arrow_flight_protocol::{FlightData, FlightDescriptor, FlightInfo};
 use arrow_flightsql_odbc::arrow_flight_protocol::flight_descriptor::DescriptorType;
-use arrow_flightsql_odbc::arrow_flight_protocol_sql::{CommandGetCatalogs, CommandGetTableTypes, CommandStatementQuery};
+use arrow_flightsql_odbc::arrow_flight_protocol_sql::{CommandGetCatalogs, CommandGetDbSchemas, CommandGetTableTypes, CommandStatementQuery};
 use prost::Message;
 use tonic::transport::Channel;
 use arrow_flightsql_odbc::myserver::*;
@@ -60,6 +60,14 @@ fn cli() -> Command<'static> {
             Command::new("GetTableTypes")
                 .about("Get table types")
         )
+        .subcommand(
+            Command::new("GetSchemas")
+                .about("Get schemas")
+                .arg(arg!([catalog])
+                         .help("The catalog to use"))
+                .arg(arg!([schema])
+                         .help("Specifies a filter pattern for schemas to search for. When no db_schema_filter_pattern is provided, the pattern will not be used to narrow the search."))
+        )
 }
 
 #[tokio::main]
@@ -91,6 +99,11 @@ async fn main() -> Result<(), ClientError> {
         Some(("GetTableTypes", _)) => {
             get_table_types(client).await
         }
+        Some(("GetSchemas", sub_matches)) => {
+            let catalog = sub_matches.value_of("catalog").map(|x| x.to_string());
+            let schema = sub_matches.value_of("schema").map(|x| x.to_string());
+            get_schemas(client, catalog, schema).await
+        }
         _ => unreachable!(), // If all subcommands are defined above, anything else is unreachabe!()
     }
 }
@@ -108,6 +121,17 @@ async fn get_catalogs(client: FlightServiceClient<Channel>) -> Result<(), Client
 
     let fi = get_flight_descriptor_for_command(client.clone(), &CommandGetCatalogs { })
         .await?;
+
+    print_flight_info_results(client, fi)
+        .await
+}
+
+async fn get_schemas(client: FlightServiceClient<Channel>, catalog: Option<String>, schema: Option<String>) -> Result<(), ClientError> {
+
+    let fi = get_flight_descriptor_for_command(client.clone(), &CommandGetDbSchemas {
+        catalog: catalog,
+        db_schema_filter_pattern: schema,
+    }).await?;
 
     print_flight_info_results(client, fi)
         .await
