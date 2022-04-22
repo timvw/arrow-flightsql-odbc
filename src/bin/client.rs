@@ -1,19 +1,15 @@
 use arrow::datatypes::SchemaRef;
 use arrow::error::ArrowError;
-use arrow::ipc::{convert, MessageHeader, Schema};
-use arrow::json::reader;
-use futures::StreamExt;
+use arrow::ipc::{convert, MessageHeader};
 use arrow_flightsql_odbc::arrow_flight_protocol::flight_service_client::FlightServiceClient;
-use arrow_flightsql_odbc::arrow_flight_protocol::{Criteria, FlightData, FlightDescriptor, FlightInfo, Ticket};
+use arrow_flightsql_odbc::arrow_flight_protocol::{FlightData, FlightDescriptor, FlightInfo};
 use arrow_flightsql_odbc::arrow_flight_protocol::flight_descriptor::DescriptorType;
 use arrow_flightsql_odbc::arrow_flight_protocol_sql::{CommandGetCatalogs, CommandGetTableTypes, CommandStatementQuery};
 use prost::Message;
 use tonic::transport::Channel;
 use arrow_flightsql_odbc::myserver::*;
-use std::path::PathBuf;
-use std::sync::Arc;
 use clap::{arg, Command};
-use tonic::{include_proto, Streaming};
+use tonic::Streaming;
 
 #[derive(Debug)]
 pub enum ClientError {
@@ -31,6 +27,10 @@ impl From<arrow::error::ArrowError> for ClientError {
 
 impl From<tonic::Status> for ClientError {
     fn from(status: tonic::Status) -> Self { ClientError::Tonic(format!("{}", status)) }
+}
+
+impl From<tonic::transport::Error> for ClientError {
+    fn from(error: tonic::transport::Error) -> Self { ClientError::Tonic(format!("{}", error)) }
 }
 
 fn cli() -> Command<'static> {
@@ -63,7 +63,7 @@ fn cli() -> Command<'static> {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<(), ClientError> {
 
     let matches = cli().get_matches();
 
@@ -75,29 +75,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .value_of_t("PORT")
         .expect("'PORT' is required");
 
-    let client_address = format!("{}:{}", host, port);
+    let client_address = format!("http://{}:{}", host, port);
 
-    let mut client = FlightServiceClient::connect(format!("http://{}:{}", host, port))
+    let client = FlightServiceClient::connect(client_address)
         .await?;
 
     match matches.subcommand() {
         Some(("Execute", sub_matches)) => {
             let query = sub_matches.value_of("QUERY").expect("'QUERY' is required").to_string();
-            execute(client, query).await;
+            execute(client, query).await
         }
-        Some(("GetCatalogs", sub_matches)) => {
-            get_catalogs(client).await;
+        Some(("GetCatalogs", _)) => {
+            get_catalogs(client).await
         }
-        Some(("GetTableTypes", sub_matches)) => {
-            get_table_types(client).await;
+        Some(("GetTableTypes", _)) => {
+            get_table_types(client).await
         }
         _ => unreachable!(), // If all subcommands are defined above, anything else is unreachabe!()
     }
-
-    Ok(())
 }
 
-async fn execute(mut client: FlightServiceClient<Channel>, query: String) -> Result<(), ClientError> {
+async fn execute(client: FlightServiceClient<Channel>, query: String) -> Result<(), ClientError> {
 
     let fi = get_flight_descriptor_for_command(client.clone(), &CommandStatementQuery { query })
         .await?;
@@ -106,7 +104,7 @@ async fn execute(mut client: FlightServiceClient<Channel>, query: String) -> Res
         .await
 }
 
-async fn get_catalogs(mut client: FlightServiceClient<Channel>) -> Result<(), ClientError> {
+async fn get_catalogs(client: FlightServiceClient<Channel>) -> Result<(), ClientError> {
 
     let fi = get_flight_descriptor_for_command(client.clone(), &CommandGetCatalogs { })
         .await?;
@@ -115,7 +113,7 @@ async fn get_catalogs(mut client: FlightServiceClient<Channel>) -> Result<(), Cl
         .await
 }
 
-async fn get_table_types(mut client: FlightServiceClient<Channel>) -> Result<(), ClientError> {
+async fn get_table_types(client: FlightServiceClient<Channel>) -> Result<(), ClientError> {
 
     let fi = get_flight_descriptor_for_command(client.clone(), &CommandGetTableTypes { })
         .await?;
@@ -172,7 +170,7 @@ async fn print_flight_data_stream(flight_data_stream: &mut Streaming<FlightData>
         let ipc_message = arrow::ipc::root_as_message(&flight_data.data_header[..])
             .map_err(|err| { ArrowError::ParseError(format!("Unable to get root as message: {:?}", err)) })?;
 
-        if (ipc_message.header_type() == MessageHeader::RecordBatch) {
+        if ipc_message.header_type() == MessageHeader::RecordBatch {
             let ipc_record_batch = ipc_message
                 .header_as_record_batch()
                 .ok_or(ClientError::Logic("Unable to convert flight data header to a record batch".to_string()))?;
