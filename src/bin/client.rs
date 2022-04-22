@@ -99,35 +99,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 async fn execute(mut client: FlightServiceClient<Channel>, query: String) -> Result<(), ClientError> {
 
-    let any = prost_types::Any::pack(&CommandStatementQuery { query })?;
-
-    let fi = client
-        .get_flight_info(FlightDescriptor{
-            r#type: DescriptorType::Cmd as i32,
-            cmd: any.encode_to_vec(),
-            path: vec![]
-        })
-        .await?
-        .into_inner();
-
-    print_flight_info_results(client, fi)
+    let fi = get_flight_descriptor_for_command(client.clone(), &CommandStatementQuery { query })
         .await?;
 
-    Ok(())
+    print_flight_info_results(client, fi)
+        .await
 }
 
 async fn get_catalogs(mut client: FlightServiceClient<Channel>) -> Result<(), ClientError> {
 
-    let any = prost_types::Any::pack(&CommandGetCatalogs { })?;
-
-    let fi = client
-        .get_flight_info(FlightDescriptor{
-            r#type: DescriptorType::Cmd as i32,
-            cmd: any.encode_to_vec(),
-            path: vec![]
-        })
-        .await?
-        .into_inner();
+    let fi = get_flight_descriptor_for_command(client.clone(), &CommandGetCatalogs { })
+        .await?;
 
     print_flight_info_results(client, fi)
         .await
@@ -135,7 +117,16 @@ async fn get_catalogs(mut client: FlightServiceClient<Channel>) -> Result<(), Cl
 
 async fn get_table_types(mut client: FlightServiceClient<Channel>) -> Result<(), ClientError> {
 
-    let any = prost_types::Any::pack(&CommandGetTableTypes { })?;
+    let fi = get_flight_descriptor_for_command(client.clone(), &CommandGetTableTypes { })
+        .await?;
+
+    print_flight_info_results(client, fi)
+        .await
+}
+
+async fn get_flight_descriptor_for_command<M: ProstMessageExt>(mut client: FlightServiceClient<Channel>, message: &M) -> Result<FlightInfo, ClientError> {
+
+    let any = prost_types::Any::pack(message)?;
 
     let fi = client
         .get_flight_info(FlightDescriptor{
@@ -146,8 +137,7 @@ async fn get_table_types(mut client: FlightServiceClient<Channel>) -> Result<(),
         .await?
         .into_inner();
 
-    print_flight_info_results(client, fi)
-        .await
+    Ok(fi)
 }
 
 async fn print_flight_info_results(mut client: FlightServiceClient<Channel>, fi: FlightInfo) -> Result<(), ClientError> {
