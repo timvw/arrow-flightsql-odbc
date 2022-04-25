@@ -8,8 +8,9 @@ use arrow_flightsql_odbc::arrow_flight_protocol_sql::{CommandGetCatalogs, Comman
 use prost::Message;
 use tonic::transport::Channel;
 use arrow_flightsql_odbc::myserver::*;
-use clap::{arg, Command};
+use clap::{Args, Parser, Subcommand};
 use tonic::Streaming;
+use crate::Commands::{GetCatalogs, GetExportedKeys};
 
 #[derive(Debug)]
 pub enum ClientError {
@@ -33,146 +34,178 @@ impl From<tonic::transport::Error> for ClientError {
     fn from(error: tonic::transport::Error) -> Self { ClientError::Tonic(format!("{}", error)) }
 }
 
-fn cli() -> Command<'static> {
-    Command::new("FlightSqlClientDemoApp")
-        .about("A Flight Sql client CLI")
-        .arg(arg!([HOST])
-            .help("The host where the Flight Sql server is running")
-            .default_value("localhost"))
-        .arg(arg!([PORT])
-            .help( "The port where the Flight Sql server is running")
-            //.default_value("50051")
-            .default_value("52358")
-            .validator(|s| s.parse::<usize>()))
-        .subcommand_required(true)
-        .arg_required_else_help(true)
-        .subcommand(
-            Command::new("Execute")
-                .about("Execute a SQL query")
-                .arg(arg!(<QUERY> "The query to execute"))
-                .arg_required_else_help(true),
-        )
-        .subcommand(
-            Command::new("GetCatalogs")
-                .about("Get catalogs")
-        )
-        .subcommand(
-            Command::new("GetTableTypes")
-                .about("Get table types")
-        )
-        .subcommand(
-            Command::new("GetSchemas")
-                .about("Get schemas")
-                .arg(arg!([catalog])
-                         .help("The catalog to use"))
-                .arg(arg!([schema])
-                         .help("Specifies a filter pattern for schemas to search for. When no db_schema_filter_pattern is provided, the pattern will not be used to narrow the search."))
-        )
-        .subcommand(
-            Command::new("GetTables")
-                .about("Get tables")
-                .arg(arg!([catalog])
-                    .help("The catalog to use"))
-                .arg(arg!([schema])
-                    .help("Specifies a filter pattern for schemas to search for. When no db_schema_filter_pattern is provided, the pattern will not be used to narrow the search."))
-                .arg(arg!([table])
-                    .help("The table to use"))
-        )
-        .subcommand(
-            Command::new("GetExportedKeys")
-                .about("Get exported keys")
-                .arg(arg!(<table>)
-                    .help("The table to use"))
-                .arg_required_else_help(true)
-                .arg(arg!([catalog])
-                    .help("The catalog to use"))
-                .arg(arg!([schema])
-                    .help("Specifies a filter pattern for schemas to search for. When no db_schema_filter_pattern is provided, the pattern will not be used to narrow the search."))
-        )
-        .subcommand(
-            Command::new("GetImportedKeys")
-                .about("Get imported keys")
-                .arg(arg!(<table>)
-                    .help("The table to use"))
-                .arg_required_else_help(true)
-                .arg(arg!([catalog])
-                    .help("The catalog to use"))
-                .arg(arg!([schema])
-                    .help("Specifies a filter pattern for schemas to search for. When no db_schema_filter_pattern is provided, the pattern will not be used to narrow the search."))
-        )
-        .subcommand(
-            Command::new("GetPrimaryKeys")
-                .about("Get primary keys")
-                .arg(arg!(<table>)
-                    .help("The table to use"))
-                .arg_required_else_help(true)
-                .arg(arg!([catalog])
-                    .help("The catalog to use"))
-                .arg(arg!([schema])
-                    .help("Specifies a filter pattern for schemas to search for. When no db_schema_filter_pattern is provided, the pattern will not be used to narrow the search."))
-        )
+#[derive(Parser, Debug)]
+#[clap(author, version, about, long_about = None)]
+#[clap(propagate_version = true)]
+struct Cli {
+    #[clap(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand, Debug)]
+enum Commands {
+    Execute(ExecuteArgs),
+    GetCatalogs(GetCatalogsArgs),
+    GetTableTypes(GetTableTypesArgs),
+    GetSchemas(GetSchemasArgs),
+    GetTables(GetTablesArgs),
+    GetExportedKeys(GetExportedKeysArgs),
+    GetImportedKeys(GetImportedKeysArgs),
+    GetPrimaryKeys(GetPrimaryKeysArgs),
+}
+
+#[derive(Args, Debug)]
+struct Common {
+    #[clap(long, default_value_t = String::from("localhost"))]
+    hostname: String,
+    #[clap(short, long, default_value_t = 52358, parse(try_from_str))]
+    port: usize,
+}
+
+#[derive(Args, Debug)]
+struct ExecuteArgs {
+    #[clap(flatten)]
+    common: Common,
+    #[clap(short, long)]
+    query: String
+}
+
+#[derive(Args, Debug)]
+struct GetCatalogsArgs {
+    #[clap(flatten)]
+    common: Common,
+}
+
+#[derive(Args, Debug)]
+struct GetTableTypesArgs {
+    #[clap(flatten)]
+    common: Common,
+}
+
+#[derive(Args, Debug)]
+struct GetSchemasArgs {
+    #[clap(flatten)]
+    common: Common,
+    #[clap(short, long)]
+    catalog: Option<String>,
+    #[clap(short, long)]
+    schema: Option<String>,
+}
+
+#[derive(Args, Debug)]
+struct GetTablesArgs {
+    #[clap(flatten)]
+    common: Common,
+    #[clap(short, long)]
+    catalog: Option<String>,
+    #[clap(short, long)]
+    schema: Option<String>,
+    #[clap(short, long)]
+    table: Option<String>,
+}
+
+#[derive(Args, Debug)]
+struct GetExportedKeysArgs {
+    #[clap(flatten)]
+    common: Common,
+    #[clap(short, long)]
+    catalog: Option<String>,
+    #[clap(short, long)]
+    schema: Option<String>,
+    #[clap(short, long)]
+    table: String,
+}
+
+#[derive(Args, Debug)]
+struct GetImportedKeysArgs {
+    #[clap(flatten)]
+    common: Common,
+    #[clap(short, long)]
+    catalog: Option<String>,
+    #[clap(short, long)]
+    schema: Option<String>,
+    #[clap(short, long)]
+    table: String,
+}
+
+#[derive(Args, Debug)]
+struct GetPrimaryKeysArgs {
+    #[clap(flatten)]
+    common: Common,
+    #[clap(short, long)]
+    catalog: Option<String>,
+    #[clap(short, long)]
+    schema: Option<String>,
+    #[clap(short, long)]
+    table: String,
+}
+
+async fn new_client(hostname: String, port: &usize) -> Result<FlightServiceClient<Channel>, ClientError> {
+    let client_address = format!("http://{}:{}", hostname, port);
+    FlightServiceClient::connect(client_address)
+        .await
+        .map_err(|e|ClientError::Tonic(format!("{}", e)) )
 }
 
 #[tokio::main]
 async fn main() -> Result<(), ClientError> {
 
-    let matches = cli().get_matches();
+    let cli = Cli::parse();
 
-    let host = matches
-        .value_of("HOST")
-        .expect("'HOST' is required");
-
-    let port: usize = matches
-        .value_of_t("PORT")
-        .expect("'PORT' is required");
-
-    let client_address = format!("http://{}:{}", host, port);
-
-    let client = FlightServiceClient::connect(client_address)
-        .await?;
-
-    match matches.subcommand() {
-        Some(("Execute", sub_matches)) => {
-            let query = sub_matches.value_of("QUERY").expect("'QUERY' is required").to_string();
-            execute(client, query).await
+    match &cli.command {
+        Commands::Execute (ExecuteArgs { common: Common{hostname, port}, query}) => {
+            let client = new_client(hostname.to_string(), port).await?;
+            execute(client,
+                    query.to_string()
+            ).await
         }
-        Some(("GetCatalogs", _)) => {
+        Commands::GetCatalogs (GetCatalogsArgs { common: Common{hostname, port}}) => {
+            let client = new_client(hostname.to_string(), port).await?;
             get_catalogs(client).await
         }
-        Some(("GetTableTypes", _)) => {
+        Commands::GetTableTypes (GetTableTypesArgs { common: Common{hostname, port}}) => {
+            let client = new_client(hostname.to_string(), port).await?;
             get_table_types(client).await
         }
-        Some(("GetSchemas", sub_matches)) => {
-            let catalog = sub_matches.value_of("catalog").map(|x| x.to_string());
-            let schema = sub_matches.value_of("schema").map(|x| x.to_string());
-            get_schemas(client, catalog, schema).await
+        Commands::GetSchemas (GetSchemasArgs { common: Common{hostname, port}, catalog, schema}) => {
+            let client = new_client(hostname.to_string(), port).await?;
+            get_schemas(client,
+                        catalog.as_deref().map(|x| x.to_string()),
+                        schema.as_deref().map(|x| x.to_string())
+            ).await
         }
-        Some(("GetTables", sub_matches)) => {
-            let catalog = sub_matches.value_of("catalog").map(|x| x.to_string());
-            let schema = sub_matches.value_of("schema").map(|x| x.to_string());
-            let table = sub_matches.value_of("table").map(|x| x.to_string());
-            get_tables(client, catalog, schema, table).await
+        Commands::GetTables (GetTablesArgs { common: Common{hostname, port}, catalog, schema, table}) => {
+            let client = new_client(hostname.to_string(), port).await?;
+            get_tables(client,
+                       catalog.as_deref().map(|x| x.to_string()),
+                       schema.as_deref().map(|x|x.to_string()),
+                       table.as_deref().map(|x|x.to_string())
+            ).await
         }
-        Some(("GetExportedKeys", sub_matches)) => {
-            let catalog = sub_matches.value_of("catalog").map(|x| x.to_string());
-            let schema = sub_matches.value_of("schema").map(|x| x.to_string());
-            let table = sub_matches.value_of("table").expect("'TABLE' is required").to_string();
-            get_exported_keys(client, catalog, schema, table).await
+        Commands::GetExportedKeys (GetExportedKeysArgs { common: Common{hostname, port}, catalog, schema, table}) => {
+            let client = new_client(hostname.to_string(), port).await?;
+            get_exported_keys(client,
+                              catalog.as_deref().map(|x| x.to_string()),
+                              schema.as_deref().map(|x|x.to_string()),
+                              table.to_string()
+            ).await
         }
-        Some(("GetImportedKeys", sub_matches)) => {
-            let catalog = sub_matches.value_of("catalog").map(|x| x.to_string());
-            let schema = sub_matches.value_of("schema").map(|x| x.to_string());
-            let table = sub_matches.value_of("table").expect("'TABLE' is required").to_string();
-            get_imported_keys(client, catalog, schema, table).await
+        Commands::GetImportedKeys (GetImportedKeysArgs { common: Common{hostname, port}, catalog, schema, table}) => {
+            let client = new_client(hostname.to_string(), port).await?;
+            get_imported_keys(client,
+                              catalog.as_deref().map(|x| x.to_string()),
+                              schema.as_deref().map(|x|x.to_string()),
+                              table.to_string()
+            ).await
         }
-        Some(("GetPrimaryKeys", sub_matches)) => {
-            let catalog = sub_matches.value_of("catalog").map(|x| x.to_string());
-            let schema = sub_matches.value_of("schema").map(|x| x.to_string());
-            let table = sub_matches.value_of("table").expect("'TABLE' is required").to_string();
-            get_primary_keys(client, catalog, schema, table).await
+        Commands::GetPrimaryKeys (GetPrimaryKeysArgs { common: Common{hostname, port}, catalog, schema, table}) => {
+            let client = new_client(hostname.to_string(), port).await?;
+            get_primary_keys(client,
+                             catalog.as_deref().map(|x| x.to_string()),
+                             schema.as_deref().map(|x|x.to_string()),
+                             table.to_string()
+            ).await
         }
-
-        _ => unreachable!(), // If all subcommands are defined above, anything else is unreachabe!()
     }
 }
 
