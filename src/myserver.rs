@@ -3,15 +3,20 @@ use crate::arrow_flight_protocol::flight_service_server::FlightService;
 use crate::arrow_flight_protocol::{Action, Criteria, Empty, FlightData, FlightDescriptor, FlightInfo, HandshakeRequest, HandshakeResponse, SchemaResult, Ticket, PutResult, Result as ActionResult, ActionType, FlightEndpoint};
 use futures_core::Stream;
 use std::pin::Pin;
-use tokio::sync::mpsc;
+use arrow::datatypes::Schema;
+use tokio::sync::{mpsc, mpsc::Receiver, oneshot};
 use tokio_stream::wrappers::ReceiverStream;
 use crate::arrow_flight_protocol_sql::*;
 use prost::Message;
 use prost_types::Any;
 use arrow::error::{ArrowError, Result as ArrowResult};
+use arrow::ipc;
+use arrow::ipc::convert::schema_to_fb;
 use arrow_odbc::{odbc_api, OdbcReader};
-use arrow_odbc::odbc_api::Environment;
+use arrow_odbc::odbc_api::{CursorImpl, Environment};
 use tokio::sync::mpsc::Sender;
+use arrow::ipc::writer::IpcWriteOptions;
+use core::ops::Deref;
 
 #[derive(Debug)]
 pub enum MyServerError {
@@ -19,6 +24,8 @@ pub enum MyServerError {
     TonicTransportError(tonic::transport::Error),
     TonicReflectionServerError(tonic_reflection::server::Error),
     AddrParseError(std::net::AddrParseError),
+    ArrowOdbcError(arrow_odbc::Error),
+    TonicStatus(tonic::Status),
 }
 
 impl From<odbc_api::Error> for MyServerError {
@@ -45,29 +52,71 @@ impl From<std::net::AddrParseError> for MyServerError {
     }
 }
 
-#[derive(Debug)]
-pub enum OdbcCommand {
+impl From<arrow_odbc::Error> for MyServerError {
+    fn from(error: arrow_odbc::Error) -> Self {
+        MyServerError::ArrowOdbcError(error)
+    }
+}
 
+impl From<tonic::Status> for MyServerError {
+    fn from(error: tonic::Status) -> Self {
+        MyServerError::TonicStatus(error)
+    }
 }
 
 #[derive(Debug)]
-pub struct OdbcCommandHandler {}
+pub enum OdbcCommand {
+    Query(OdbcQueryRequest)
+}
+
+#[derive(Debug)]
+pub struct OdbcQueryRequest {
+    query: String,
+    response_sender: oneshot::Sender<OdbcQueryResponse>,
+}
+
+#[derive(Clone, Debug)]
+pub struct OdbcQueryResponse {
+    schema: Schema,
+}
+
+#[derive(Debug, Clone)]
+pub struct OdbcCommandHandler {
+    odbc_connection_string: String,
+}
 
 impl OdbcCommandHandler {
-    pub fn new() -> OdbcCommandHandler {
-        OdbcCommandHandler {}
+
+    pub fn handle(&self, cmd: OdbcCommand) -> Result<(), MyServerError> {
+        let odbc_environment = Environment::new()?;
+        match cmd {
+            OdbcCommand::Query( odbc_query_command) => self.handle_query_command(odbc_environment, odbc_query_command)
+        }
     }
 
-    pub fn handle(&mut self, cmd: OdbcCommand) {
-        match cmd {
-            //TopicCommand::Publish(publish_request, response_sender) => self.handle_publish_request(publish_request, response_sender)
-        }
+    fn handle_query_command(&self, odbc_environment: Environment, cmd: OdbcQueryRequest) -> Result<(), MyServerError> {
+
+        //let connection =
+
+        let connection = odbc_environment.connect_with_connection_string(self.odbc_connection_string.as_str())?;
+        let parameters = ();
+
+        let cursor = connection
+            .execute(cmd.query.as_str(), parameters)?
+            .expect("failed to get cursor for query...");
+
+        let schema = arrow_odbc::arrow_schema_from(&cursor)?;
+
+        cmd.response_sender.send(OdbcQueryResponse{
+            //ipc message + schema???
+            schema
+        });
+
+        Ok(())
     }
 }
 
 pub struct MyServer {
-    odbc_connection_string: String,
-    odbc_environment: Environment,
     odbc_command_sender: Sender<OdbcCommand>,
 }
 
@@ -75,36 +124,79 @@ impl MyServer {
 
     pub fn new(odbc_connection_string: String) -> Result<MyServer, MyServerError> {
 
-        let odbc_environment = Environment::new()?;
-
         let (odbc_command_sender, mut odbc_command_receiver) = mpsc::channel::<OdbcCommand>(32);
 
-        let _ = tokio::spawn(async move {
-            let mut odbc_command_handler = OdbcCommandHandler::new();
+        let handler = OdbcCommandHandler {
+            odbc_connection_string,
+        };
+
+        let _: tokio::task::JoinHandle<Result<(), MyServerError>> = tokio::spawn(async move {
             while let Some(cmd) = odbc_command_receiver.recv().await {
-                odbc_command_handler.handle(cmd);
+                println!("handling cmd: {:?}", cmd);
+                let result = handler.clone().handle(cmd);
+                if let Err(e) = result {
+                    println!("failed to process error: {:?}", e);
+                }
             }
+            Ok(())
         });
 
         Ok(MyServer {
-            odbc_connection_string,
-            odbc_environment,
             odbc_command_sender,
         })
     }
 
-    // let's run a task to handle queries etc...
-    //
-
     async fn get_flight_info_statement(&self, q: CommandStatementQuery, flight_descriptor: FlightDescriptor) -> Result<Response<FlightInfo>, Status> {
+
+        let command_sender = self.odbc_command_sender.clone();
+        let (response_sender, response_receiver) = oneshot::channel();
+
+        self.odbc_command_sender.send(OdbcCommand::Query(OdbcQueryRequest{
+            query: q.query,
+            response_sender,
+        }))
+            .await
+            .map_err(sender_error_to_status)?;
+
+        let responseF = response_receiver.await;
+        let response = responseF.expect("failed to get response...");
 
         let fiep = FlightEndpoint {
             ticket: None,
             location: vec![]
         };
 
+        //let any: prost_types::Any = prost::Message::decode(&*flight_descriptor.cmd).map_err(decode_error_to_status)?;
+        //prost::Message::encode()
+
+        /*
+                let fb = schema_to_fb(&schema);
+
+        // read back fields
+        let ipc = ipc::root_as_schema(fb.finished_data()).unwrap();
+         */
+
+        let arrow_schema = response.schema;
+
+        //let fb = schema_to_fb(&response.schema);
+       //prost::Message::encode()
+        //let data_gen = ipc::writer::IpcDataGenerator::default();
+        //let ed = data_gen.schema_to_bytes(&arrow_schema, &arrow::ipc::writer::IpcWriteOptions::default());
+        //let ipc_schema =  prost_types::Any::pack(&arrow_schema)?;
+        //let xx = ipc_schema.as_any().encode_to_vec();
+
+       // ipc::writer::
+        //flight_schema_as_flatbuffer
+
+        //let data_gen = arrow::ipc::writer::IpcDataGenerator::default();
+       let options = arrow::ipc::writer::IpcWriteOptions::default();
+        //let msg = data_gen.schema_to_bytes(&arrow_schema, &options);
+
+        let msg = ipc_message_from_arrow_schema(&arrow_schema, &options)
+            .map_err(arrow_error_to_status)?;
+
         let fi = FlightInfo {
-            schema: vec![],
+            schema: msg,
             flight_descriptor: Some(flight_descriptor),
             endpoint: vec![fiep],
             total_records: -1,
@@ -113,6 +205,74 @@ impl MyServer {
 
         Ok(Response::new(fi))
     }
+}
+
+/// SchemaAsIpc represents a pairing of a `Schema` with IpcWriteOptions
+pub struct SchemaAsIpc<'a> {
+    pub pair: (&'a Schema, &'a IpcWriteOptions),
+}
+
+impl<'a> SchemaAsIpc<'a> {
+    pub fn new(schema: &'a Schema, options: &'a IpcWriteOptions) -> Self {
+        SchemaAsIpc {
+            pair: (schema, options),
+        }
+    }
+}
+
+/// IpcMessage represents a `Schema` in the format expected in
+/// `FlightInfo.schema`
+#[derive(Debug)]
+pub struct IpcMessage(pub Vec<u8>);
+
+fn flight_schema_as_encoded_data(
+    arrow_schema: &Schema,
+    options: &IpcWriteOptions,
+) -> ipc::writer::EncodedData {
+    let data_gen = ipc::writer::IpcDataGenerator::default();
+    data_gen.schema_to_bytes(arrow_schema, options)
+}
+
+impl TryFrom<SchemaAsIpc<'_>> for IpcMessage {
+    type Error = ArrowError;
+
+    fn try_from(schema_ipc: SchemaAsIpc) -> ArrowResult<Self> {
+        let pair = *schema_ipc;
+        let encoded_data = flight_schema_as_encoded_data(pair.0, pair.1);
+
+        let mut schema = vec![];
+        arrow::ipc::writer::write_message(&mut schema, encoded_data, pair.1)?;
+        Ok(IpcMessage(schema))
+    }
+}
+
+impl Deref for IpcMessage {
+    type Target = Vec<u8>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<'a> Deref for SchemaAsIpc<'a> {
+    type Target = (&'a Schema, &'a IpcWriteOptions);
+
+    fn deref(&self) -> &Self::Target {
+        &self.pair
+    }
+}
+
+pub fn ipc_message_from_arrow_schema(
+    schema: &Schema,
+    options: &IpcWriteOptions,
+) -> Result<Vec<u8>, ArrowError> {
+    let message = SchemaAsIpc::new(schema, options).try_into().expect("failed blah...");
+    let IpcMessage(vals) = message;
+    Ok(vals)
+}
+
+pub fn sender_error_to_status<T>(error: tokio::sync::mpsc::error::SendError<T>) -> tonic::Status {
+    Status::unknown("sender error")
 }
 
 #[tonic::async_trait]
@@ -183,10 +343,11 @@ impl FlightService for MyServer {
 
     async fn do_get(&self, request: Request<Ticket>) -> Result<Response<Self::DoGetStream>, Status> {
 
+        /*
         let (mut tx, rx) = mpsc::channel(100);
         let cstr = self.odbc_connection_string.clone();
 
-        tokio::task::block_in_place(move || {
+
         //tokio::spawn(async move {
 
             let odbc_environment = Environment::new()
@@ -229,7 +390,8 @@ impl FlightService for MyServer {
             result
         });
 
-        Ok(Response::new(ReceiverStream::new(rx)))
+        Ok(Response::new(ReceiverStream::new(rx)))*/
+        todo!();
     }
 
     type DoPutStream = ReceiverStream<Result<PutResult, Status>>;
