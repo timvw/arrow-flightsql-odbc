@@ -11,18 +11,90 @@ use prost_types::Any;
 use arrow::error::{ArrowError, Result as ArrowResult};
 use arrow_odbc::{odbc_api, OdbcReader};
 use arrow_odbc::odbc_api::Environment;
+use tokio::sync::mpsc::Sender;
 
 #[derive(Debug)]
+pub enum MyServerError {
+    OdbcApiError(odbc_api::Error),
+    TonicTransportError(tonic::transport::Error),
+    TonicReflectionServerError(tonic_reflection::server::Error),
+    AddrParseError(std::net::AddrParseError),
+}
+
+impl From<odbc_api::Error> for MyServerError {
+    fn from(error: odbc_api::Error) -> Self {
+        MyServerError::OdbcApiError(error)
+    }
+}
+
+impl From<tonic::transport::Error> for MyServerError {
+    fn from(error: tonic::transport::Error) -> Self {
+        MyServerError::TonicTransportError(error)
+    }
+}
+
+impl From<tonic_reflection::server::Error> for MyServerError {
+    fn from(error: tonic_reflection::server::Error) -> Self {
+        MyServerError::TonicReflectionServerError(error)
+    }
+}
+
+impl From<std::net::AddrParseError> for MyServerError {
+    fn from(error: std::net::AddrParseError) -> Self {
+        MyServerError::AddrParseError(error)
+    }
+}
+
+#[derive(Debug)]
+pub enum OdbcCommand {
+
+}
+
+#[derive(Debug)]
+pub struct OdbcCommandHandler {}
+
+impl OdbcCommandHandler {
+    pub fn new() -> OdbcCommandHandler {
+        OdbcCommandHandler {}
+    }
+
+    pub fn handle(&mut self, cmd: OdbcCommand) {
+        match cmd {
+            //TopicCommand::Publish(publish_request, response_sender) => self.handle_publish_request(publish_request, response_sender)
+        }
+    }
+}
+
 pub struct MyServer {
     odbc_connection_string: String,
+    odbc_environment: Environment,
+    odbc_command_sender: Sender<OdbcCommand>,
 }
 
 impl MyServer {
-    pub fn new(odbc_connection_string: String) -> MyServer {
-        MyServer {
-            odbc_connection_string
-        }
+
+    pub fn new(odbc_connection_string: String) -> Result<MyServer, MyServerError> {
+
+        let odbc_environment = Environment::new()?;
+
+        let (odbc_command_sender, mut odbc_command_receiver) = mpsc::channel::<OdbcCommand>(32);
+
+        let _ = tokio::spawn(async move {
+            let mut odbc_command_handler = OdbcCommandHandler::new();
+            while let Some(cmd) = odbc_command_receiver.recv().await {
+                odbc_command_handler.handle(cmd);
+            }
+        });
+
+        Ok(MyServer {
+            odbc_connection_string,
+            odbc_environment,
+            odbc_command_sender,
+        })
     }
+
+    // let's run a task to handle queries etc...
+    //
 
     async fn get_flight_info_statement(&self, q: CommandStatementQuery, flight_descriptor: FlightDescriptor) -> Result<Response<FlightInfo>, Status> {
 

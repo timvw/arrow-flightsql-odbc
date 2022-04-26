@@ -1,11 +1,11 @@
 use std::env;
 use log::info;
 use tonic::transport::Server;
-use arrow_flightsql_odbc::myserver::MyServer;
+use arrow_flightsql_odbc::myserver::{MyServer, MyServerError};
 use arrow_flightsql_odbc::arrow_flight_protocol::flight_service_server::FlightServiceServer;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<(), MyServerError> {
 
     env_logger::init_from_env(
         env_logger::Env::default().filter_or(env_logger::DEFAULT_FILTER_ENV, "info"));
@@ -16,12 +16,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     log::info!("odbc_connection_string: {}", odbc_connection_string);
 
     let server_address = env::var("SERVER_ADDRESS")
-        .unwrap_or("0.0.0.0:50051".to_string());
+        .unwrap_or("0.0.0.0:52358".to_string());
 
     log::info!("binding to: {}", server_address);
 
     let addr = server_address.parse()?;
-    let myserver = MyServer::new(odbc_connection_string);
+    let myserver = MyServer::new(odbc_connection_string)?;
 
     let reflection_server = tonic_reflection::server::Builder::configure()
         .register_encoded_file_descriptor_set(arrow_flightsql_odbc::FLIGHT_DESCRIPTOR_SET)
