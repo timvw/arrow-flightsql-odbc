@@ -50,6 +50,7 @@ dependencies = [
  "arrow",
  "arrow-odbc",
  "async-stream",
+ "bytes",
  "clap",
  "env_logger",
  "futures",

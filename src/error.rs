@@ -4,9 +4,11 @@ pub enum MyServerError {
     TonicTransportError(tonic::transport::Error),
     TonicReflectionServerError(tonic_reflection::server::Error),
     AddrParseError(std::net::AddrParseError),
+    ArrowError(arrow::error::ArrowError),
     ArrowOdbcError(arrow_odbc::Error),
     TonicStatus(tonic::Status),
     SendError(String),
+    NotImplementedYet(String),
 }
 
 impl From<arrow_odbc::odbc_api::Error> for MyServerError {
@@ -30,6 +32,12 @@ impl From<tonic_reflection::server::Error> for MyServerError {
 impl From<std::net::AddrParseError> for MyServerError {
     fn from(error: std::net::AddrParseError) -> Self {
         MyServerError::AddrParseError(error)
+    }
+}
+
+impl From<arrow::error::ArrowError> for MyServerError {
+    fn from(error: arrow::error::ArrowError) -> Self {
+        MyServerError::ArrowError(error)
     }
 }
 
