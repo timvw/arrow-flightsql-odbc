@@ -110,28 +110,23 @@ impl OdbcCommandHandler {
             .map_err(|e| MyServerError::OdbcApiError(e))
     }
 
-    fn handle_get_command_schema(&mut self, req: GetCommandSchemaRequest)-> Result<(), MyServerError> {
-
-        let connection = self.get_connection()?;
-
-        let cursor = match req.command.clone() {
+    fn get_result_cursor<'s>(&self, connection: &'s odbc_api::Connection<'s>, command: FlightSqlCommand) -> Result<CursorImpl<StatementImpl<'s>>, MyServerError> {
+        match command {
             FlightSqlCommand::StatementQuery(x) => self.get_statement_query(&connection, x),
             FlightSqlCommand::GetTables(x) => self.get_tables_query(&connection, x),
-        }?;
+        }
+    }
 
+    fn handle_get_command_schema(&mut self, req: GetCommandSchemaRequest)-> Result<(), MyServerError> {
+        let connection = self.get_connection()?;
+        let cursor = self.get_result_cursor(&connection, req.command.clone())?;
         let ticket = req.command.to_ticket();
         self.send_schema_from_cursor(req.response_sender, cursor, ticket)
     }
 
     fn handle_get_command_data(&mut self, req: GetCommandDataRequest)-> Result<(), MyServerError> {
-
         let connection = self.get_connection()?;
-
-        let cursor = match req.command.clone() {
-            FlightSqlCommand::StatementQuery(x) => self.get_statement_query(&connection, x),
-            FlightSqlCommand::GetTables(x) => self.get_tables_query(&connection, x),
-        }?;
-
+        let cursor = self.get_result_cursor(&connection, req.command.clone())?;
         self.send_flight_data_from_cursor(req.response_sender, cursor)
     }
 
