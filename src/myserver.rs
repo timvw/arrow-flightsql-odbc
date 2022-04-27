@@ -3,7 +3,7 @@ use crate::arrow_flight_protocol::flight_service_server::FlightService;
 use crate::arrow_flight_protocol::{Action, Criteria, Empty, FlightData, FlightDescriptor, FlightInfo, HandshakeRequest, HandshakeResponse, SchemaResult, Ticket, PutResult, Result as ActionResult, ActionType, FlightEndpoint};
 use futures_core::Stream;
 use std::pin::Pin;
-use arrow::datatypes::Schema;
+use arrow::datatypes::{Schema, ToByteSlice};
 use tokio::sync::{mpsc, mpsc::Receiver, oneshot};
 use tokio_stream::wrappers::ReceiverStream;
 use crate::arrow_flight_protocol_sql::*;
@@ -17,6 +17,15 @@ use arrow_odbc::odbc_api::{CursorImpl, Environment};
 use tokio::sync::mpsc::Sender;
 use arrow::ipc::writer::IpcWriteOptions;
 use core::ops::Deref;
+use std::borrow::BorrowMut;
+use std::sync::Arc;
+use std::collections::HashMap;
+use std::cell::RefCell;
+use std::string::FromUtf8Error;
+use arrow::record_batch::RecordBatch;
+use arrow_odbc::odbc_api::handles::StatementImpl;
+use arrow::ipc::writer::EncodedData;
+use tokio::task;
 
 #[derive(Debug)]
 pub enum MyServerError {
@@ -66,35 +75,51 @@ impl From<tonic::Status> for MyServerError {
 
 #[derive(Debug)]
 pub enum OdbcCommand {
-    Query(OdbcQueryRequest)
+    GetSchema(GetSchemaRequest),
+    GetData(GetDataRequest),
 }
 
 #[derive(Debug)]
-pub struct OdbcQueryRequest {
+pub struct GetSchemaRequest {
     query: String,
-    response_sender: oneshot::Sender<OdbcQueryResponse>,
+    response_sender: oneshot::Sender<GetSchemaResponse>,
 }
 
-#[derive(Clone, Debug)]
-pub struct OdbcQueryResponse {
+#[derive(Debug)]
+pub struct GetSchemaResponse {
     schema: Schema,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
+pub struct GetDataRequest {
+    query: String,
+    response_sender: tokio::sync::mpsc::Sender<Result<FlightData, Status>>,
+}
+
+//
+
+#[derive(Debug)]
+pub struct GetDataResponse {
+    //record_batches: Streaming<RecordBatch>,
+}
+
+//#[derive(Debug)]
 pub struct OdbcCommandHandler {
     odbc_connection_string: String,
+    //cache: HashMap<String, CursorImpl<StatementImpl<'s>>>,
 }
 
 impl OdbcCommandHandler {
 
-    pub fn handle(&self, cmd: OdbcCommand) -> Result<(), MyServerError> {
+    pub fn handle(&mut self, cmd: OdbcCommand) -> Result<(), MyServerError> {
         let odbc_environment = Environment::new()?;
         match cmd {
-            OdbcCommand::Query( odbc_query_command) => self.handle_query_command(odbc_environment, odbc_query_command)
+            OdbcCommand::GetSchema(get_schema_request) => self.handle_get_schema_request(odbc_environment, get_schema_request),
+            OdbcCommand::GetData(get_data_request) => self.handle_get_data_request(odbc_environment, get_data_request)
         }
     }
 
-    fn handle_query_command(&self, odbc_environment: Environment, cmd: OdbcQueryRequest) -> Result<(), MyServerError> {
+    fn handle_get_schema_request(&mut self, odbc_environment: Environment, req: GetSchemaRequest) -> Result<(), MyServerError> {
 
         //let connection =
 
@@ -102,17 +127,75 @@ impl OdbcCommandHandler {
         let parameters = ();
 
         let cursor = connection
-            .execute(cmd.query.as_str(), parameters)?
+            .execute(req.query.as_str(), parameters)?
             .expect("failed to get cursor for query...");
 
         let schema = arrow_odbc::arrow_schema_from(&cursor)?;
 
-        cmd.response_sender.send(OdbcQueryResponse{
-            //ipc message + schema???
+        req.response_sender.send(GetSchemaResponse {
             schema
         });
 
         Ok(())
+    }
+
+    fn handle_get_data_request(&mut self, odbc_environment: Environment, req: GetDataRequest) -> Result<(), MyServerError> {
+
+        let connection = odbc_environment.connect_with_connection_string(self.odbc_connection_string.as_str())?;
+        let parameters = ();
+
+        let cursor = connection
+            .execute(req.query.as_str(), parameters)?
+            .expect("failed to get cursor for query...");
+
+        let arrow_record_batches = OdbcReader::new(cursor, 100)
+            //.map_err(arrow_odbc_err_to_status)?;
+            .expect("failed to create odbc reader");
+
+        for batchr in arrow_record_batches {
+            let batch = batchr.expect("failed to fetch batch");
+
+            let (dicts, batch) = flight_data_from_arrow_batch(&batch, &IpcWriteOptions::default());
+
+            let rsp = req.response_sender.clone();
+            task::spawn_blocking(move || {
+                for dict in dicts {
+                    rsp.blocking_send(Ok(dict));
+                }
+                rsp.blocking_send(Ok(batch));
+            });
+        }
+
+        Ok(())
+    }
+}
+
+/// Convert a `RecordBatch` to a vector of `FlightData` representing the bytes of the dictionaries
+/// and a `FlightData` representing the bytes of the batch's values
+pub fn flight_data_from_arrow_batch(
+    batch: &RecordBatch,
+    options: &IpcWriteOptions,
+) -> (Vec<FlightData>, FlightData) {
+    let data_gen = ipc::writer::IpcDataGenerator::default();
+    let mut dictionary_tracker = ipc::writer::DictionaryTracker::new(false);
+
+    let (encoded_dictionaries, encoded_batch) = data_gen
+        .encoded_batch(batch, &mut dictionary_tracker, options)
+        .expect("DictionaryTracker configured above to not error on replacement");
+
+    let flight_dictionaries = encoded_dictionaries.into_iter().map(Into::into).collect();
+    let flight_batch = encoded_batch.into();
+
+    (flight_dictionaries, flight_batch)
+}
+
+impl From<EncodedData> for FlightData {
+    fn from(data: EncodedData) -> Self {
+        FlightData {
+            data_header: data.ipc_message,
+            data_body: data.arrow_data,
+            ..Default::default()
+        }
     }
 }
 
@@ -126,18 +209,21 @@ impl MyServer {
 
         let (odbc_command_sender, mut odbc_command_receiver) = mpsc::channel::<OdbcCommand>(32);
 
-        let handler = OdbcCommandHandler {
-            odbc_connection_string,
-        };
-
         let _: tokio::task::JoinHandle<Result<(), MyServerError>> = tokio::spawn(async move {
+
+            let mut handler = OdbcCommandHandler {
+                odbc_connection_string,
+                //cache: HashMap::new(),
+            };
+
             while let Some(cmd) = odbc_command_receiver.recv().await {
                 println!("handling cmd: {:?}", cmd);
-                let result = handler.clone().handle(cmd);
+                let result = handler.handle(cmd);
                 if let Err(e) = result {
                     println!("failed to process error: {:?}", e);
                 }
             }
+
             Ok(())
         });
 
@@ -151,52 +237,35 @@ impl MyServer {
         let command_sender = self.odbc_command_sender.clone();
         let (response_sender, response_receiver) = oneshot::channel();
 
-        self.odbc_command_sender.send(OdbcCommand::Query(OdbcQueryRequest{
-            query: q.query,
+        self.odbc_command_sender.send(OdbcCommand::GetSchema(GetSchemaRequest {
+            query: q.query.clone(),
             response_sender,
         }))
             .await
             .map_err(sender_error_to_status)?;
 
-        let responseF = response_receiver.await;
-        let response = responseF.expect("failed to get response...");
+        let response = response_receiver
+            .await
+            .map_err(receiver_error_to_status)?;
+
+
+        let ticket = Ticket{
+            ticket: q.query.into_bytes(),
+        };
 
         let fiep = FlightEndpoint {
-            ticket: None,
+            ticket: Some(ticket),
             location: vec![]
         };
 
-        //let any: prost_types::Any = prost::Message::decode(&*flight_descriptor.cmd).map_err(decode_error_to_status)?;
-        //prost::Message::encode()
-
-        /*
-                let fb = schema_to_fb(&schema);
-
-        // read back fields
-        let ipc = ipc::root_as_schema(fb.finished_data()).unwrap();
-         */
-
         let arrow_schema = response.schema;
 
-        //let fb = schema_to_fb(&response.schema);
-       //prost::Message::encode()
-        //let data_gen = ipc::writer::IpcDataGenerator::default();
-        //let ed = data_gen.schema_to_bytes(&arrow_schema, &arrow::ipc::writer::IpcWriteOptions::default());
-        //let ipc_schema =  prost_types::Any::pack(&arrow_schema)?;
-        //let xx = ipc_schema.as_any().encode_to_vec();
-
-       // ipc::writer::
-        //flight_schema_as_flatbuffer
-
-        //let data_gen = arrow::ipc::writer::IpcDataGenerator::default();
        let options = arrow::ipc::writer::IpcWriteOptions::default();
-        //let msg = data_gen.schema_to_bytes(&arrow_schema, &options);
-
-        let msg = ipc_message_from_arrow_schema(&arrow_schema, &options)
+        let ipc_schema = ipc_message_from_arrow_schema(&arrow_schema, &options)
             .map_err(arrow_error_to_status)?;
 
         let fi = FlightInfo {
-            schema: msg,
+            schema: ipc_schema,
             flight_descriptor: Some(flight_descriptor),
             endpoint: vec![fiep],
             total_records: -1,
@@ -271,8 +340,16 @@ pub fn ipc_message_from_arrow_schema(
     Ok(vals)
 }
 
-pub fn sender_error_to_status<T>(error: tokio::sync::mpsc::error::SendError<T>) -> tonic::Status {
+pub fn sender_error_to_status<T>(_: tokio::sync::mpsc::error::SendError<T>) -> tonic::Status {
     Status::unknown("sender error")
+}
+
+pub fn receiver_error_to_status(_: tokio::sync::oneshot::error::RecvError) -> tonic::Status {
+    Status::unknown("receiver error")
+}
+
+pub fn utf8_err_to_status(_: core::str::Utf8Error) -> tonic::Status {
+    Status::unknown("utf8 error")
 }
 
 #[tonic::async_trait]
@@ -316,8 +393,6 @@ impl FlightService for MyServer {
         let flight_descriptor = request.into_inner();
         let any: prost_types::Any = prost::Message::decode(&*flight_descriptor.cmd).map_err(decode_error_to_status)?;
 
-        println!("any type_url is: {}", any.type_url);
-
         if any.is::<CommandStatementQuery>() {
             return self
                 .get_flight_info_statement(
@@ -343,55 +418,22 @@ impl FlightService for MyServer {
 
     async fn do_get(&self, request: Request<Ticket>) -> Result<Response<Self::DoGetStream>, Status> {
 
-        /*
-        let (mut tx, rx) = mpsc::channel(100);
-        let cstr = self.odbc_connection_string.clone();
+        let ticket = request.into_inner();
 
+        let command_sender = self.odbc_command_sender.clone();
+        let (response_sender, response_receiver) = mpsc::channel(100);
 
-        //tokio::spawn(async move {
+        let query = std::str::from_utf8(ticket.ticket.to_byte_slice())
+            .map_err(utf8_err_to_status)?;
 
-            let odbc_environment = Environment::new()
-                .expect("failed to create odbc_env");
-            //.map_err(odbc_api_err_to_status)?;
+        self.odbc_command_sender.send(OdbcCommand::GetData(GetDataRequest {
+            query: query.to_string(),
+            response_sender,
+        }))
+            .await
+            .map_err(sender_error_to_status)?;
 
-            let connection = odbc_environment
-                .connect_with_connection_string(cstr.as_str())
-                //.map_err(odbc_api_err_to_status)?;
-                .expect("failed to connect");
-
-            let parameters = ();
-
-            let cursor = connection
-                .execute("SELECT * FROM dataquality.checks LIMIT 10", parameters)
-                .map_err(odbc_api_err_to_status)?
-                .expect("SELECT statement must produce a cursor");
-
-            let max_batch_size = 3;
-
-            let arrow_record_batches = OdbcReader::new(cursor, max_batch_size)
-                //.map_err(arrow_odbc_err_to_status)?;
-                .expect("failed to create odbc reader");
-
-            for batch in arrow_record_batches {
-
-                let flight_data = FlightData{
-                    flight_descriptor: None,
-                    data_header: vec![],
-                    app_metadata: vec![],
-                    data_body: vec![]
-                };
-
-               //tx.send(Ok(flight_data));//.await.expect("failed to send batch.."); //;;.await.unwrap();
-                log::info!("sending a batch back to the client");
-                tx.blocking_send(Ok(flight_data)).expect("failed to send batch..");
-            }
-
-            let result: Result<bool, Status> = Ok(true);
-            result
-        });
-
-        Ok(Response::new(ReceiverStream::new(rx)))*/
-        todo!();
+        Ok(Response::new(ReceiverStream::new(response_receiver)))
     }
 
     type DoPutStream = ReceiverStream<Result<PutResult, Status>>;
