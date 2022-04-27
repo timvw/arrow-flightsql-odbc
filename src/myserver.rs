@@ -17,53 +17,7 @@ use arrow::record_batch::RecordBatch;
 use arrow::ipc::writer::EncodedData;
 use arrow_odbc::odbc_api::handles::StatementImpl;
 use tokio::task;
-
-#[derive(Debug)]
-pub enum MyServerError {
-    OdbcApiError(odbc_api::Error),
-    TonicTransportError(tonic::transport::Error),
-    TonicReflectionServerError(tonic_reflection::server::Error),
-    AddrParseError(std::net::AddrParseError),
-    ArrowOdbcError(arrow_odbc::Error),
-    TonicStatus(tonic::Status),
-    SendError(String),
-}
-
-impl From<odbc_api::Error> for MyServerError {
-    fn from(error: odbc_api::Error) -> Self {
-        MyServerError::OdbcApiError(error)
-    }
-}
-
-impl From<tonic::transport::Error> for MyServerError {
-    fn from(error: tonic::transport::Error) -> Self {
-        MyServerError::TonicTransportError(error)
-    }
-}
-
-impl From<tonic_reflection::server::Error> for MyServerError {
-    fn from(error: tonic_reflection::server::Error) -> Self {
-        MyServerError::TonicReflectionServerError(error)
-    }
-}
-
-impl From<std::net::AddrParseError> for MyServerError {
-    fn from(error: std::net::AddrParseError) -> Self {
-        MyServerError::AddrParseError(error)
-    }
-}
-
-impl From<arrow_odbc::Error> for MyServerError {
-    fn from(error: arrow_odbc::Error) -> Self {
-        MyServerError::ArrowOdbcError(error)
-    }
-}
-
-impl From<tonic::Status> for MyServerError {
-    fn from(error: tonic::Status) -> Self {
-        MyServerError::TonicStatus(error)
-    }
-}
+use crate::error::MyServerError;
 
 #[derive(Debug)]
 pub enum OdbcCommand {
@@ -238,7 +192,7 @@ pub fn flight_data_from_arrow_batch(
 
     let (encoded_dictionaries, encoded_batch) = data_gen
         .encoded_batch(batch, &mut dictionary_tracker, options)
-        .expect("DictionaryTracker configured above to not error on replacement");
+        .expect("DictionaryTracker configured above to not error.rs on replacement");
 
     let flight_dictionaries = encoded_dictionaries.into_iter().map(Into::into).collect();
     let flight_batch = encoded_batch.into();
@@ -279,7 +233,7 @@ impl MyServer {
                 log::info!("handling cmd: {:?}", cmd);
                 let result = handler.handle(cmd);
                 if let Err(e) = result {
-                    log::error!("failed to process error: {:?}", e);
+                    log::error!("failed to process error.rs: {:?}", e);
                 }
             }
 
@@ -334,10 +288,11 @@ impl MyServer {
 
         let (response_sender, response_receiver) = oneshot::channel();
 
-        self.odbc_command_sender.send(OdbcCommand::GetQuerySchema(GetQuerySchemaRequest {
-            command,
-            response_sender,
-        }))
+        self.odbc_command_sender
+            .send(OdbcCommand::GetQuerySchema(GetQuerySchemaRequest {
+                command,
+                response_sender,
+            }))
             .await
             .map_err(sender_error_to_status)?;
 
@@ -414,15 +369,15 @@ pub fn ipc_message_from_arrow_schema(
 }
 
 pub fn sender_error_to_status<T>(_: tokio::sync::mpsc::error::SendError<T>) -> tonic::Status {
-    Status::unknown("sender error")
+    Status::unknown("sender error.rs")
 }
 
 pub fn receiver_error_to_status(_: tokio::sync::oneshot::error::RecvError) -> tonic::Status {
-    Status::unknown("receiver error")
+    Status::unknown("receiver error.rs")
 }
 
 pub fn utf8_err_to_status(_: core::str::Utf8Error) -> tonic::Status {
-    Status::unknown("utf8 error")
+    Status::unknown("utf8 error.rs")
 }
 
 #[tonic::async_trait]
@@ -565,15 +520,6 @@ impl FlightService for MyServer {
     }
 }
 
-/*
-fn odbc_api_err_to_status(err: odbc_api::Error) -> tonic::Status {
-    tonic::Status::internal(format!("{:?}", err))
-}
-
-fn arrow_odbc_err_to_status(err: arrow_odbc::Error) -> tonic::Status {
-    tonic::Status::internal(format!("{:?}", err))
-}*/
-
 fn decode_error_to_status(err: prost::DecodeError) -> tonic::Status {
     tonic::Status::invalid_argument(format!("{:?}", err))
 }
@@ -667,34 +613,5 @@ impl ProstAnyExt for prost_types::Any {
 
     fn pack<M: ProstMessageExt>(message: &M) -> ArrowResult<prost_types::Any> {
         Ok(message.as_any())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_type_url() {
-        assert_eq!(
-            TicketStatementQuery::type_url(),
-            "type.googleapis.com/arrow.flight.protocol.sql.TicketStatementQuery"
-        );
-        assert_eq!(
-            CommandStatementQuery::type_url(),
-            "type.googleapis.com/arrow.flight.protocol.sql.CommandStatementQuery"
-        );
-    }
-
-    #[test]
-    fn test_prost_any_pack_unpack() -> ArrowResult<()> {
-        let query = CommandStatementQuery {
-            query: "select 1".to_string(),
-        };
-        let any = prost_types::Any::pack(&query)?;
-        assert!(any.is::<CommandStatementQuery>());
-        let unpack_query: CommandStatementQuery = any.unpack()?.unwrap();
-        assert_eq!(query, unpack_query);
-        Ok(())
     }
 }

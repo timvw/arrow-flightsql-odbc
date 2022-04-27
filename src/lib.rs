@@ -19,3 +19,5 @@ pub const FLIGHT_DESCRIPTOR_SET: &[u8] = tonic::include_file_descriptor_set!("fl
 pub const FLIGHT_SQL_DESCRIPTOR_SET: &[u8] = tonic::include_file_descriptor_set!("flight_sql_descriptor");
 
 pub mod myserver;
+
+pub mod error;
