@@ -1,7 +1,7 @@
 use tonic::{Request, Response, Status, Streaming};
 use crate::arrow_flight_protocol::flight_service_server::FlightService;
 use crate::arrow_flight_protocol::{Action, Criteria, Empty, FlightData, FlightDescriptor, FlightInfo, HandshakeRequest, HandshakeResponse, SchemaResult, Ticket, PutResult, Result as ActionResult, ActionType, FlightEndpoint};
-use arrow::datatypes::{Schema, ToByteSlice};
+use arrow::datatypes::Schema;
 use tokio::sync::{mpsc, oneshot};
 use tokio_stream::wrappers::ReceiverStream;
 use crate::arrow_flight_protocol_sql::*;
@@ -75,34 +75,31 @@ pub enum OdbcCommand {
 
 #[derive(Debug)]
 pub struct GetQuerySchemaRequest {
-    query: String,
+    command: CommandStatementQuery,
     response_sender: oneshot::Sender<GetSchemaResponse>,
 }
 
 #[derive(Debug)]
 pub struct GetSchemaResponse {
+    ticket: Ticket,
     schema: Schema,
 }
 
 #[derive(Debug)]
 pub struct GetQueryDataRequest {
-    query: String,
+    command: CommandStatementQuery,
     response_sender: tokio::sync::mpsc::Sender<Result<FlightData, Status>>,
 }
 
 #[derive(Debug)]
 pub struct GetTablesSchemaRequest {
-    catalog: String,
-    db_schema_filter_pattern: String,
-    table_name_filter_pattern: String,
+    command: CommandGetTables,
     response_sender: oneshot::Sender<GetSchemaResponse>,
 }
 
 #[derive(Debug)]
 pub struct GetTablesDataRequest {
-    catalog: String,
-    db_schema_filter_pattern: String,
-    table_name_filter_pattern: String,
+    command: CommandGetTables,
     response_sender: tokio::sync::mpsc::Sender<Result<FlightData, Status>>,
 }
 
@@ -115,7 +112,6 @@ pub struct GetDataResponse {
 pub struct OdbcCommandHandler {
     odbc_connection_string: String,
     odbc_environment: Environment,
-    //cache: HashMap<String, CursorImpl<StatementImpl<'s>>>,
 }
 
 impl OdbcCommandHandler {
@@ -137,22 +133,27 @@ impl OdbcCommandHandler {
     fn handle_get_tables_schema(&mut self, req: GetTablesSchemaRequest) -> Result<(), MyServerError> {
         let connection = self.get_connection()?;
 
+        let cmd = req.command.clone();
+
         let cursor = connection.tables(
-            req.catalog.as_str(),
-            req.db_schema_filter_pattern.as_str(),
-        req.table_name_filter_pattern.as_str(),
+            cmd.catalog.unwrap_or("".to_string()).as_str(),
+            cmd.db_schema_filter_pattern.unwrap_or("".to_string()).as_str(),
+            cmd.table_name_filter_pattern.unwrap_or("".to_string()).as_str(),
         "")?;
 
-        self.send_schema_from_cursor(req.response_sender, cursor)
+        let ticket = Ticket {
+            ticket: req.command.as_any().encode_to_vec(),
+        };
+        self.send_schema_from_cursor(req.response_sender, cursor, ticket)
     }
 
     fn handle_get_tables_data(&mut self, req: GetTablesDataRequest) -> Result<(), MyServerError> {
         let connection = self.get_connection()?;
 
         let cursor = connection.tables(
-            req.catalog.as_str(),
-            req.db_schema_filter_pattern.as_str(),
-            req.table_name_filter_pattern.as_str(),
+            req.command.catalog.unwrap_or("".to_string()).as_str(),
+            req.command.db_schema_filter_pattern.unwrap_or("".to_string()).as_str(),
+            req.command.table_name_filter_pattern.unwrap_or("".to_string()).as_str(),
             "")?;
 
         self.send_flight_data_from_cursor(req.response_sender, cursor)
@@ -163,11 +164,17 @@ impl OdbcCommandHandler {
         let connection = self.get_connection()?;
         let parameters = ();
 
+        let cmd = req.command.clone();
+
         let cursor = connection
-            .execute(req.query.as_str(), parameters)?
+            .execute(cmd.query.as_str(), parameters)?
             .expect("failed to get cursor for query...");
 
-        self.send_schema_from_cursor(req.response_sender, cursor)
+        let ticket = Ticket {
+            ticket: req.command.as_any().encode_to_vec(),
+        };
+
+        self.send_schema_from_cursor(req.response_sender, cursor, ticket)
     }
 
     fn handle_get_query_data(&mut self, req: GetQueryDataRequest) -> Result<(), MyServerError> {
@@ -176,16 +183,17 @@ impl OdbcCommandHandler {
         let parameters = ();
 
         let cursor = connection
-            .execute(req.query.as_str(), parameters)?
+            .execute(req.command.query.as_str(), parameters)?
             .expect("failed to get cursor for query...");
 
         self.send_flight_data_from_cursor(req.response_sender, cursor)
     }
 
-    fn send_schema_from_cursor<'s>(&self, response_sender: oneshot::Sender<GetSchemaResponse>, cursor: CursorImpl<StatementImpl<'s>>) -> Result<(), MyServerError> {
+    fn send_schema_from_cursor<'s>(&self, response_sender: oneshot::Sender<GetSchemaResponse>, cursor: CursorImpl<StatementImpl<'s>>, ticket: Ticket) -> Result<(), MyServerError> {
         let schema = arrow_odbc::arrow_schema_from(&cursor)?;
 
         response_sender.send(GetSchemaResponse {
+            ticket,
             schema
         }).map_err(|_| MyServerError::SendError("failed to response...".to_string()))
     }
@@ -283,16 +291,15 @@ impl MyServer {
         })
     }
 
-    async fn get_flight_info_tables(&self, q: CommandGetTables, flight_descriptor: FlightDescriptor) -> Result<Response<FlightInfo>, Status> {
+    async fn get_flight_info_tables(&self, command: CommandGetTables, flight_descriptor: FlightDescriptor) -> Result<Response<FlightInfo>, Status> {
 
         let (response_sender, response_receiver) = oneshot::channel();
 
-        self.odbc_command_sender.send(OdbcCommand::GetTablesSchema(GetTablesSchemaRequest {
-            catalog: q.catalog.unwrap_or("".to_string()),
-            db_schema_filter_pattern: q.db_schema_filter_pattern.unwrap_or("".to_string()),
-            table_name_filter_pattern: q.table_name_filter_pattern.unwrap_or("".to_string()),
-            response_sender,
-        }))
+        self.odbc_command_sender
+            .send(OdbcCommand::GetTablesSchema(GetTablesSchemaRequest {
+                command: command.clone(),
+                response_sender,
+            }))
             .await
             .map_err(sender_error_to_status)?;
 
@@ -300,11 +307,7 @@ impl MyServer {
             .await
             .map_err(receiver_error_to_status)?;
 
-        let ticket = Ticket {
-            ticket: vec![],
-        };
-
-        self.make_flight_info(flight_descriptor, response.schema, ticket)
+        self.make_flight_info(flight_descriptor, response.schema, response.ticket)
     }
 
     fn make_flight_info(&self, flight_descriptor: FlightDescriptor, arrow_schema: Schema, ticket: Ticket) -> Result<Response<FlightInfo>, Status> {
@@ -327,12 +330,12 @@ impl MyServer {
         }))
     }
 
-    async fn get_flight_info_statement(&self, q: CommandStatementQuery, flight_descriptor: FlightDescriptor) -> Result<Response<FlightInfo>, Status> {
+    async fn get_flight_info_statement(&self, command: CommandStatementQuery, flight_descriptor: FlightDescriptor) -> Result<Response<FlightInfo>, Status> {
 
         let (response_sender, response_receiver) = oneshot::channel();
 
         self.odbc_command_sender.send(OdbcCommand::GetQuerySchema(GetQuerySchemaRequest {
-            query: q.query.clone(),
+            command,
             response_sender,
         }))
             .await
@@ -342,12 +345,7 @@ impl MyServer {
             .await
             .map_err(receiver_error_to_status)?;
 
-
-        let ticket = Ticket{
-            ticket: q.query.into_bytes(),
-        };
-
-        self.make_flight_info(flight_descriptor, response.schema, ticket)
+        self.make_flight_info(flight_descriptor, response.schema, response.ticket)
     }
 }
 
@@ -507,15 +505,37 @@ impl FlightService for MyServer {
 
         let (response_sender, response_receiver) = mpsc::channel(100);
 
-        let query = std::str::from_utf8(ticket.ticket.to_byte_slice())
-            .map_err(utf8_err_to_status)?;
+        let any: prost_types::Any = prost::Message::decode(&*ticket.ticket).map_err(decode_error_to_status)?;
 
-        self.odbc_command_sender.send(OdbcCommand::GetQueryData(GetQueryDataRequest {
-            query: query.to_string(),
-            response_sender,
-        }))
-            .await
-            .map_err(sender_error_to_status)?;
+        match any {
+            _ if any.is::<CommandStatementQuery>() => {
+                let command = any.unpack()
+                    .map_err(arrow_error_to_status)?
+                    .expect("unreachable");
+
+                self.odbc_command_sender
+                    .send(OdbcCommand::GetQueryData(GetQueryDataRequest {
+                        command,
+                        response_sender,
+                    }))
+                    .await
+                    .map_err(sender_error_to_status)
+            },
+            _ if any.is::<CommandGetTables>() => {
+                let command = any.unpack()
+                    .map_err(arrow_error_to_status)?
+                    .expect("unreachable");
+
+                self.odbc_command_sender
+                    .send(OdbcCommand::GetTablesData(GetTablesDataRequest {
+                        command,
+                        response_sender,
+                    }))
+                    .await
+                    .map_err(sender_error_to_status)
+            },
+            _ => todo!(),
+        }?;
 
         Ok(Response::new(ReceiverStream::new(response_receiver)))
     }
