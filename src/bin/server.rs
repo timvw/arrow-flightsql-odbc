@@ -1,5 +1,4 @@
 use std::env;
-use log::info;
 use tonic::transport::Server;
 use arrow_flightsql_odbc::myserver::{MyServer, MyServerError};
 use arrow_flightsql_odbc::arrow_flight_protocol::flight_service_server::FlightServiceServer;

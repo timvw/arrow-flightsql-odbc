@@ -1,29 +1,19 @@
 use tonic::{Request, Response, Status, Streaming};
 use crate::arrow_flight_protocol::flight_service_server::FlightService;
 use crate::arrow_flight_protocol::{Action, Criteria, Empty, FlightData, FlightDescriptor, FlightInfo, HandshakeRequest, HandshakeResponse, SchemaResult, Ticket, PutResult, Result as ActionResult, ActionType, FlightEndpoint};
-use futures_core::Stream;
-use std::pin::Pin;
 use arrow::datatypes::{Schema, ToByteSlice};
-use tokio::sync::{mpsc, mpsc::Receiver, oneshot};
+use tokio::sync::{mpsc, oneshot};
 use tokio_stream::wrappers::ReceiverStream;
 use crate::arrow_flight_protocol_sql::*;
 use prost::Message;
-use prost_types::Any;
 use arrow::error::{ArrowError, Result as ArrowResult};
 use arrow::ipc;
-use arrow::ipc::convert::schema_to_fb;
 use arrow_odbc::{odbc_api, OdbcReader};
-use arrow_odbc::odbc_api::{CursorImpl, Environment};
+use arrow_odbc::odbc_api::Environment;
 use tokio::sync::mpsc::Sender;
 use arrow::ipc::writer::IpcWriteOptions;
 use core::ops::Deref;
-use std::borrow::BorrowMut;
-use std::sync::Arc;
-use std::collections::HashMap;
-use std::cell::RefCell;
-use std::string::FromUtf8Error;
 use arrow::record_batch::RecordBatch;
-use arrow_odbc::odbc_api::handles::StatementImpl;
 use arrow::ipc::writer::EncodedData;
 use tokio::task;
 
@@ -35,6 +25,7 @@ pub enum MyServerError {
     AddrParseError(std::net::AddrParseError),
     ArrowOdbcError(arrow_odbc::Error),
     TonicStatus(tonic::Status),
+    SendError(String),
 }
 
 impl From<odbc_api::Error> for MyServerError {
@@ -106,24 +97,27 @@ pub struct GetDataResponse {
 //#[derive(Debug)]
 pub struct OdbcCommandHandler {
     odbc_connection_string: String,
+    odbc_environment: Environment,
     //cache: HashMap<String, CursorImpl<StatementImpl<'s>>>,
 }
 
 impl OdbcCommandHandler {
 
     pub fn handle(&mut self, cmd: OdbcCommand) -> Result<(), MyServerError> {
-        let odbc_environment = Environment::new()?;
         match cmd {
-            OdbcCommand::GetSchema(get_schema_request) => self.handle_get_schema_request(odbc_environment, get_schema_request),
-            OdbcCommand::GetData(get_data_request) => self.handle_get_data_request(odbc_environment, get_data_request)
+            OdbcCommand::GetSchema(get_schema_request) => self.handle_get_schema_request(get_schema_request),
+            OdbcCommand::GetData(get_data_request) => self.handle_get_data_request(get_data_request)
         }
     }
 
-    fn handle_get_schema_request(&mut self, odbc_environment: Environment, req: GetSchemaRequest) -> Result<(), MyServerError> {
+    fn get_connection(&mut self) -> Result<odbc_api::Connection<'_>, MyServerError> {
+        self.odbc_environment.connect_with_connection_string(self.odbc_connection_string.as_str())
+            .map_err(|e| MyServerError::OdbcApiError(e))
+    }
 
-        //let connection =
+    fn handle_get_schema_request(&mut self, req: GetSchemaRequest) -> Result<(), MyServerError> {
 
-        let connection = odbc_environment.connect_with_connection_string(self.odbc_connection_string.as_str())?;
+        let connection = self.get_connection()?;
         let parameters = ();
 
         let cursor = connection
@@ -134,14 +128,12 @@ impl OdbcCommandHandler {
 
         req.response_sender.send(GetSchemaResponse {
             schema
-        });
-
-        Ok(())
+        }).map_err(|_| MyServerError::SendError("failed to response...".to_string()))
     }
 
-    fn handle_get_data_request(&mut self, odbc_environment: Environment, req: GetDataRequest) -> Result<(), MyServerError> {
+    fn handle_get_data_request(&mut self, req: GetDataRequest) -> Result<(), MyServerError> {
 
-        let connection = odbc_environment.connect_with_connection_string(self.odbc_connection_string.as_str())?;
+        let connection = self.get_connection()?;
         let parameters = ();
 
         let cursor = connection
@@ -160,9 +152,15 @@ impl OdbcCommandHandler {
             let rsp = req.response_sender.clone();
             task::spawn_blocking(move || {
                 for dict in dicts {
-                    rsp.blocking_send(Ok(dict));
+                    let result = rsp.blocking_send(Ok(dict));
+                    if let Err(_) = result {
+                        log::error!("failed to send dict...");
+                    }
                 }
-                rsp.blocking_send(Ok(batch));
+                let result = rsp.blocking_send(Ok(batch));
+                if let Err(_) = result {
+                    log::error!("failed to send data...");
+                }
             });
         }
 
@@ -211,16 +209,18 @@ impl MyServer {
 
         let _: tokio::task::JoinHandle<Result<(), MyServerError>> = tokio::spawn(async move {
 
+            let odbc_environment = Environment::new()?;
+
             let mut handler = OdbcCommandHandler {
                 odbc_connection_string,
-                //cache: HashMap::new(),
+                odbc_environment,
             };
 
             while let Some(cmd) = odbc_command_receiver.recv().await {
-                println!("handling cmd: {:?}", cmd);
+                log::info!("handling cmd: {:?}", cmd);
                 let result = handler.handle(cmd);
                 if let Err(e) = result {
-                    println!("failed to process error: {:?}", e);
+                    log::error!("failed to process error: {:?}", e);
                 }
             }
 
@@ -234,7 +234,6 @@ impl MyServer {
 
     async fn get_flight_info_statement(&self, q: CommandStatementQuery, flight_descriptor: FlightDescriptor) -> Result<Response<FlightInfo>, Status> {
 
-        let command_sender = self.odbc_command_sender.clone();
         let (response_sender, response_receiver) = oneshot::channel();
 
         self.odbc_command_sender.send(OdbcCommand::GetSchema(GetSchemaRequest {
@@ -357,15 +356,15 @@ impl FlightService for MyServer {
 
     type HandshakeStream = ReceiverStream<Result<HandshakeResponse, Status>>;
 
-    async fn handshake(&self, request: Request<Streaming<HandshakeRequest>>) -> Result<Response<Self::HandshakeStream>, Status> {
+    async fn handshake(&self, _: Request<Streaming<HandshakeRequest>>) -> Result<Response<Self::HandshakeStream>, Status> {
         todo!()
     }
 
     type ListFlightsStream = ReceiverStream<Result<FlightInfo, Status>>;
 
-    async fn list_flights(&self, request: Request<Criteria>) -> Result<Response<Self::ListFlightsStream>, Status> {
+    async fn list_flights(&self, _: Request<Criteria>) -> Result<Response<Self::ListFlightsStream>, Status> {
 
-        let (mut tx, rx) = mpsc::channel(100);
+        let (tx, rx) = mpsc::channel(100);
 
         tokio::spawn(async move {
 
@@ -410,7 +409,7 @@ impl FlightService for MyServer {
         )))
     }
 
-    async fn get_schema(&self, request: Request<FlightDescriptor>) -> Result<Response<SchemaResult>, Status> {
+    async fn get_schema(&self, _: Request<FlightDescriptor>) -> Result<Response<SchemaResult>, Status> {
         todo!()
     }
 
@@ -420,7 +419,6 @@ impl FlightService for MyServer {
 
         let ticket = request.into_inner();
 
-        let command_sender = self.odbc_command_sender.clone();
         let (response_sender, response_receiver) = mpsc::channel(100);
 
         let query = std::str::from_utf8(ticket.ticket.to_byte_slice())
@@ -438,36 +436,37 @@ impl FlightService for MyServer {
 
     type DoPutStream = ReceiverStream<Result<PutResult, Status>>;
 
-    async fn do_put(&self, request: Request<Streaming<FlightData>>) -> Result<Response<Self::DoPutStream>, Status> {
+    async fn do_put(&self, _: Request<Streaming<FlightData>>) -> Result<Response<Self::DoPutStream>, Status> {
         todo!()
     }
 
     type DoExchangeStream = ReceiverStream<Result<FlightData, Status>>;
 
-    async fn do_exchange(&self, request: Request<Streaming<FlightData>>) -> Result<Response<Self::DoExchangeStream>, Status> {
+    async fn do_exchange(&self, _: Request<Streaming<FlightData>>) -> Result<Response<Self::DoExchangeStream>, Status> {
         todo!()
     }
 
     type DoActionStream = ReceiverStream<Result<ActionResult, Status>>;
 
-    async fn do_action(&self, request: Request<Action>) -> Result<Response<Self::DoActionStream>, Status> {
+    async fn do_action(&self, _: Request<Action>) -> Result<Response<Self::DoActionStream>, Status> {
         todo!()
     }
 
     type ListActionsStream = ReceiverStream<Result<ActionType, Status>>;
 
-    async fn list_actions(&self, request: Request<Empty>) -> Result<Response<Self::ListActionsStream>, Status> {
+    async fn list_actions(&self, _: Request<Empty>) -> Result<Response<Self::ListActionsStream>, Status> {
         todo!()
     }
 }
 
+/*
 fn odbc_api_err_to_status(err: odbc_api::Error) -> tonic::Status {
     tonic::Status::internal(format!("{:?}", err))
 }
 
 fn arrow_odbc_err_to_status(err: arrow_odbc::Error) -> tonic::Status {
     tonic::Status::internal(format!("{:?}", err))
-}
+}*/
 
 fn decode_error_to_status(err: prost::DecodeError) -> tonic::Status {
     tonic::Status::invalid_argument(format!("{:?}", err))
