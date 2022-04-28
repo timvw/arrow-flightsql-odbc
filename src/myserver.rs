@@ -48,35 +48,6 @@ impl MyServer {
             odbc_command_sender,
         })
     }
-
-    fn make_flight_info(&self, flight_descriptor: FlightDescriptor, arrow_schema: Schema, ticket: Ticket) -> Result<Response<FlightInfo>, Status> {
-
-        let fiep = FlightEndpoint {
-            ticket: Some(ticket),
-            location: vec![]
-        };
-
-        let options = arrow::ipc::writer::IpcWriteOptions::default();
-        let ipc_schema = ipc_message_from_arrow_schema(&arrow_schema, &options)
-            .map_err(error::arrow_error_to_status)?;
-
-        Ok(Response::new(FlightInfo {
-            schema: ipc_schema,
-            flight_descriptor: Some(flight_descriptor),
-            endpoint: vec![fiep],
-            total_records: -1,
-            total_bytes: -1
-        }))
-    }
-}
-
-pub fn ipc_message_from_arrow_schema(
-    schema: &Schema,
-    options: &IpcWriteOptions,
-) -> Result<Vec<u8>, ArrowError> {
-    let message = SchemaAsIpc::new(schema, options).try_into().expect("failed blah...");
-    let IpcMessage(vals) = message;
-    Ok(vals)
 }
 
 #[tonic::async_trait]
@@ -115,7 +86,7 @@ impl FlightService for MyServer {
             .await
             .map_err(receiver_error_to_status)?;
 
-        self.make_flight_info(flight_descriptor, response.schema, response.ticket)
+        make_flight_info(flight_descriptor, response.schema, response.ticket)
     }
 
     async fn get_schema(&self, _: Request<FlightDescriptor>) -> Result<Response<SchemaResult>, Status> {
@@ -167,6 +138,36 @@ impl FlightService for MyServer {
     async fn list_actions(&self, _: Request<Empty>) -> Result<Response<Self::ListActionsStream>, Status> {
         todo!()
     }
+}
+
+
+fn make_flight_info(flight_descriptor: FlightDescriptor, arrow_schema: Schema, ticket: Ticket) -> Result<Response<FlightInfo>, Status> {
+
+    let fiep = FlightEndpoint {
+        ticket: Some(ticket),
+        location: vec![]
+    };
+
+    let options = arrow::ipc::writer::IpcWriteOptions::default();
+    let ipc_schema = ipc_message_from_arrow_schema(&arrow_schema, &options)
+        .map_err(error::arrow_error_to_status)?;
+
+    Ok(Response::new(FlightInfo {
+        schema: ipc_schema,
+        flight_descriptor: Some(flight_descriptor),
+        endpoint: vec![fiep],
+        total_records: -1,
+        total_bytes: -1
+    }))
+}
+
+fn ipc_message_from_arrow_schema(
+    schema: &Schema,
+    options: &IpcWriteOptions,
+) -> Result<Vec<u8>, ArrowError> {
+    let message = SchemaAsIpc::new(schema, options).try_into().expect("failed blah...");
+    let IpcMessage(vals) = message;
+    Ok(vals)
 }
 
 fn myserver_error_to_status(_: MyServerError) -> tonic::Status {
