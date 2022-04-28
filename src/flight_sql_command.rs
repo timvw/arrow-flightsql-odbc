@@ -3,7 +3,7 @@ use crate::arrow_flight_protocol::{FlightDescriptor, Ticket};
 use crate::arrow_flight_protocol_sql::{CommandGetTables, CommandStatementQuery};
 use crate::error::MyServerError;
 use crate::error;
-use crate::myserver::{ProstAnyExt, ProstMessageExt};
+use crate::util::*;
 
 #[derive(Debug, Clone)]
 pub enum FlightSqlCommand {
