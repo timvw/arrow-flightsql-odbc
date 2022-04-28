@@ -21,3 +21,4 @@ pub const FLIGHT_SQL_DESCRIPTOR_SET: &[u8] = tonic::include_file_descriptor_set!
 pub mod myserver;
 
 pub mod error;
+pub mod odbc_command_handler;
