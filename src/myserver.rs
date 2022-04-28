@@ -10,41 +10,10 @@ use arrow_odbc::odbc_api::Environment;
 use tokio::sync::mpsc::Sender;
 use arrow::ipc::writer::IpcWriteOptions;
 use core::ops::Deref;
-use arrow::record_batch::RecordBatch;
-use arrow::ipc::writer::EncodedData;
 use crate::error;
 use crate::error::MyServerError;
 use crate::flight_sql_command::FlightSqlCommand;
 use crate::odbc_command_handler::{GetCommandDataRequest, GetCommandSchemaRequest, OdbcCommand, OdbcCommandHandler};
-
-/// Convert a `RecordBatch` to a vector of `FlightData` representing the bytes of the dictionaries
-/// and a `FlightData` representing the bytes of the batch's values
-pub fn flight_data_from_arrow_batch(
-    batch: &RecordBatch,
-    options: &IpcWriteOptions,
-) -> (Vec<FlightData>, FlightData) {
-    let data_gen = ipc::writer::IpcDataGenerator::default();
-    let mut dictionary_tracker = ipc::writer::DictionaryTracker::new(false);
-
-    let (encoded_dictionaries, encoded_batch) = data_gen
-        .encoded_batch(batch, &mut dictionary_tracker, options)
-        .expect("DictionaryTracker configured above to not error.rs on replacement");
-
-    let flight_dictionaries = encoded_dictionaries.into_iter().map(Into::into).collect();
-    let flight_batch = encoded_batch.into();
-
-    (flight_dictionaries, flight_batch)
-}
-
-impl From<EncodedData> for FlightData {
-    fn from(data: EncodedData) -> Self {
-        FlightData {
-            data_header: data.ipc_message,
-            data_body: data.arrow_data,
-            ..Default::default()
-        }
-    }
-}
 
 pub struct MyServer {
     odbc_command_sender: Sender<OdbcCommand>,
@@ -166,22 +135,6 @@ pub fn ipc_message_from_arrow_schema(
     Ok(vals)
 }
 
-pub fn myserver_error_to_status(_: MyServerError) -> tonic::Status {
-    Status::unknown("myserver error")
-}
-
-pub fn sender_error_to_status<T>(_: tokio::sync::mpsc::error::SendError<T>) -> tonic::Status {
-    Status::unknown("sender error.rs")
-}
-
-pub fn receiver_error_to_status(_: tokio::sync::oneshot::error::RecvError) -> tonic::Status {
-    Status::unknown("receiver error.rs")
-}
-
-pub fn utf8_err_to_status(_: core::str::Utf8Error) -> tonic::Status {
-    Status::unknown("utf8 error.rs")
-}
-
 #[tonic::async_trait]
 impl FlightService for MyServer {
 
@@ -270,4 +223,16 @@ impl FlightService for MyServer {
     async fn list_actions(&self, _: Request<Empty>) -> Result<Response<Self::ListActionsStream>, Status> {
         todo!()
     }
+}
+
+fn myserver_error_to_status(_: MyServerError) -> tonic::Status {
+    Status::unknown("myserver error")
+}
+
+fn sender_error_to_status<T>(_: tokio::sync::mpsc::error::SendError<T>) -> tonic::Status {
+    Status::unknown("sender error.rs")
+}
+
+fn receiver_error_to_status(_: tokio::sync::oneshot::error::RecvError) -> tonic::Status {
+    Status::unknown("receiver error")
 }

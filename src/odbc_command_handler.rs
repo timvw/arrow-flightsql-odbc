@@ -4,12 +4,13 @@ use arrow_odbc::odbc_api::handles::StatementImpl;
 use tokio::sync::oneshot;
 use tonic::Status;
 use arrow_odbc::OdbcReader;
-use arrow::ipc::writer::IpcWriteOptions;
+use arrow::ipc::writer::{EncodedData, IpcWriteOptions};
 use tokio::task;
+use arrow::record_batch::RecordBatch;
+use arrow::ipc;
 use crate::arrow_flight_protocol::{FlightData, Ticket};
 use crate::arrow_flight_protocol_sql::{CommandGetTables, CommandStatementQuery};
 use crate::error::MyServerError;
-use crate::myserver;
 use crate::flight_sql_command::FlightSqlCommand;
 
 #[derive(Debug)]
@@ -110,7 +111,7 @@ impl OdbcCommandHandler {
         for batchr in arrow_record_batches {
             let batch = batchr.expect("failed to fetch batch");
 
-            let (dicts, batch) = myserver::flight_data_from_arrow_batch(&batch, &IpcWriteOptions::default());
+            let (dicts, batch) = flight_data_from_arrow_batch(&batch, &IpcWriteOptions::default());
 
             let rsp = response_sender.clone();
             task::spawn_blocking(move || {
@@ -128,5 +129,34 @@ impl OdbcCommandHandler {
         }
 
         Ok(())
+    }
+}
+
+/// Convert a `RecordBatch` to a vector of `FlightData` representing the bytes of the dictionaries
+/// and a `FlightData` representing the bytes of the batch's values
+fn flight_data_from_arrow_batch(
+    batch: &RecordBatch,
+    options: &IpcWriteOptions,
+) -> (Vec<FlightData>, FlightData) {
+    let data_gen = ipc::writer::IpcDataGenerator::default();
+    let mut dictionary_tracker = ipc::writer::DictionaryTracker::new(false);
+
+    let (encoded_dictionaries, encoded_batch) = data_gen
+        .encoded_batch(batch, &mut dictionary_tracker, options)
+        .expect("DictionaryTracker configured above to not error.rs on replacement");
+
+    let flight_dictionaries = encoded_dictionaries.into_iter().map(Into::into).collect();
+    let flight_batch = encoded_batch.into();
+
+    (flight_dictionaries, flight_batch)
+}
+
+impl From<EncodedData> for FlightData {
+    fn from(data: EncodedData) -> Self {
+        FlightData {
+            data_header: data.ipc_message,
+            data_body: data.arrow_data,
+            ..Default::default()
+        }
     }
 }
