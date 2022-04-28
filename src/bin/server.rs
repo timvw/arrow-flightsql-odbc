@@ -1,7 +1,6 @@
 use std::env;
 use tonic::transport::Server;
-use arrow_flightsql_odbc::myserver::MyServer;
-use arrow_flightsql_odbc::MyServerError;
+use arrow_flightsql_odbc::{MyServer, MyServerError};
 use arrow_flightsql_odbc::arrow_flight_protocol::flight_service_server::FlightServiceServer;
 
 #[tokio::main]

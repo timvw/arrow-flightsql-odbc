@@ -24,4 +24,6 @@ pub use error::*;
 mod util;
 mod odbc_command_handler;
 mod flight_sql_command;
-pub mod myserver;
+
+mod myserver;
+pub use myserver::*;
