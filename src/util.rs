@@ -1,5 +1,8 @@
+use std::ops::Deref;
+use arrow::datatypes::Schema;
 use crate::arrow_flight_protocol_sql::*;
 use arrow::error::{ArrowError, Result as ArrowResult};
+use arrow::ipc::writer::IpcWriteOptions;
 use prost::Message;
 
 /// ProstMessageExt are useful utility methods for prost::Message types
@@ -87,5 +90,60 @@ impl ProstAnyExt for prost_types::Any {
 
     fn pack<M: ProstMessageExt>(message: &M) -> ArrowResult<prost_types::Any> {
         Ok(message.as_any())
+    }
+}
+
+/// SchemaAsIpc represents a pairing of a `Schema` with IpcWriteOptions
+pub struct SchemaAsIpc<'a> {
+    pub pair: (&'a Schema, &'a IpcWriteOptions),
+}
+
+impl<'a> SchemaAsIpc<'a> {
+    pub fn new(schema: &'a Schema, options: &'a IpcWriteOptions) -> Self {
+        SchemaAsIpc {
+            pair: (schema, options),
+        }
+    }
+}
+
+/// IpcMessage represents a `Schema` in the format expected in
+/// `FlightInfo.schema`
+#[derive(Debug)]
+pub struct IpcMessage(pub Vec<u8>);
+
+fn flight_schema_as_encoded_data(
+    arrow_schema: &Schema,
+    options: &IpcWriteOptions,
+) -> arrow::ipc::writer::EncodedData {
+    let data_gen = arrow::ipc::writer::IpcDataGenerator::default();
+    data_gen.schema_to_bytes(arrow_schema, options)
+}
+
+impl TryFrom<SchemaAsIpc<'_>> for IpcMessage {
+    type Error = ArrowError;
+
+    fn try_from(schema_ipc: SchemaAsIpc) -> ArrowResult<Self> {
+        let pair = *schema_ipc;
+        let encoded_data = flight_schema_as_encoded_data(pair.0, pair.1);
+
+        let mut schema = vec![];
+        arrow::ipc::writer::write_message(&mut schema, encoded_data, pair.1)?;
+        Ok(IpcMessage(schema))
+    }
+}
+
+impl Deref for IpcMessage {
+    type Target = Vec<u8>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<'a> Deref for SchemaAsIpc<'a> {
+    type Target = (&'a Schema, &'a IpcWriteOptions);
+
+    fn deref(&self) -> &Self::Target {
+        &self.pair
     }
 }
