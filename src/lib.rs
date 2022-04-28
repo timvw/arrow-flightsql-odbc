@@ -22,3 +22,4 @@ pub mod myserver;
 
 pub mod error;
 pub mod odbc_command_handler;
+mod flight_sql_command;

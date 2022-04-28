@@ -10,7 +10,7 @@ use crate::arrow_flight_protocol::{FlightData, Ticket};
 use crate::arrow_flight_protocol_sql::{CommandGetTables, CommandStatementQuery};
 use crate::error::MyServerError;
 use crate::myserver;
-use crate::myserver::FlightSqlCommand;
+use crate::flight_sql_command::FlightSqlCommand;
 
 #[derive(Debug)]
 pub enum OdbcCommand {

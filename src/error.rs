@@ -52,3 +52,11 @@ impl From<tonic::Status> for MyServerError {
         MyServerError::TonicStatus(error)
     }
 }
+
+pub fn arrow_error_to_status(err: arrow::error::ArrowError) -> tonic::Status {
+    tonic::Status::internal(format!("{:?}", err))
+}
+
+pub fn decode_error_to_status(err: prost::DecodeError) -> tonic::Status {
+    tonic::Status::invalid_argument(format!("{:?}", err))
+}

@@ -14,55 +14,10 @@ use arrow::ipc::writer::IpcWriteOptions;
 use core::ops::Deref;
 use arrow::record_batch::RecordBatch;
 use arrow::ipc::writer::EncodedData;
+use crate::error;
 use crate::error::MyServerError;
+use crate::flight_sql_command::FlightSqlCommand;
 use crate::odbc_command_handler::{GetCommandDataRequest, GetCommandSchemaRequest, OdbcCommand, OdbcCommandHandler};
-
-#[derive(Debug, Clone)]
-pub enum FlightSqlCommand {
-    StatementQuery(CommandStatementQuery),
-    GetTables(CommandGetTables),
-}
-
-impl FlightSqlCommand {
-
-    fn try_parse_bytes<B: bytes::Buf>(buf: B) -> Result<FlightSqlCommand, MyServerError> {
-        let any: prost_types::Any = prost::Message::decode(buf)
-            .map_err(decode_error_to_status)?;
-
-        match any {
-            _ if any.is::<CommandStatementQuery>() => {
-                let command = any.unpack()?
-                    .expect("unreachable");
-                Ok(FlightSqlCommand::StatementQuery(command))
-            },
-            _ if any.is::<CommandGetTables>() => {
-                let command = any.unpack()
-                    .map_err(arrow_error_to_status)?
-                    .expect("unreachable");
-                Ok(FlightSqlCommand::GetTables(command))
-            },
-            _ => Err(MyServerError::NotImplementedYet(format!("still need to implement support for {}", any.type_url))),
-        }
-    }
-
-    pub fn try_parse_ticket(ticket: Ticket) -> Result<FlightSqlCommand, MyServerError> {
-        FlightSqlCommand::try_parse_bytes(&*ticket.ticket)
-    }
-
-    pub fn try_parse_flight_descriptor(flight_descriptor: FlightDescriptor) -> Result<FlightSqlCommand, MyServerError> {
-        FlightSqlCommand::try_parse_bytes(&*flight_descriptor.cmd)
-    }
-
-    pub fn to_ticket(&self) -> Ticket {
-        let ticket = match self {
-            FlightSqlCommand::StatementQuery(cmd) => cmd.as_any().encode_to_vec(),
-            FlightSqlCommand::GetTables(cmd) => cmd.as_any().encode_to_vec(),
-        };
-        Ticket {
-            ticket,
-        }
-    }
-}
 
 /// Convert a `RecordBatch` to a vector of `FlightData` representing the bytes of the dictionaries
 /// and a `FlightData` representing the bytes of the batch's values
@@ -137,7 +92,7 @@ impl MyServer {
 
         let options = arrow::ipc::writer::IpcWriteOptions::default();
         let ipc_schema = ipc_message_from_arrow_schema(&arrow_schema, &options)
-            .map_err(arrow_error_to_status)?;
+            .map_err(error::arrow_error_to_status)?;
 
         Ok(Response::new(FlightInfo {
             schema: ipc_schema,
@@ -317,14 +272,6 @@ impl FlightService for MyServer {
     async fn list_actions(&self, _: Request<Empty>) -> Result<Response<Self::ListActionsStream>, Status> {
         todo!()
     }
-}
-
-fn decode_error_to_status(err: prost::DecodeError) -> tonic::Status {
-    tonic::Status::invalid_argument(format!("{:?}", err))
-}
-
-fn arrow_error_to_status(err: arrow::error::ArrowError) -> tonic::Status {
-    tonic::Status::internal(format!("{:?}", err))
 }
 
 /// ProstMessageExt are useful utility methods for prost::Message types
