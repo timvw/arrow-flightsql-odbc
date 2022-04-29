@@ -39,11 +39,11 @@ RUN wget https://downloads.mariadb.com/Connectors/odbc/connector-odbc-2.0.15/mar
 RUN tar -xzf mariadb-connector-odbc-2.0.15-ga-debian-x86_64.tar.gz
 
 WORKDIR /opt/app
-COPY --from=build /opt/app/target/release/server /opt/app/server
+COPY --from=build /opt/app/target/release/flightsql-odbc-server /opt/app/flightsql-odbc-server
 
 EXPOSE 52358
 ENV SERVER_ADDRESS="0.0.0.0:52358"
-ENTRYPOINT [ "/opt/app/server" ]
+ENTRYPOINT [ "/opt/app/flightsql-odbc-server" ]
 
 
 

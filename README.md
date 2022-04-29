@@ -27,7 +27,7 @@ As on your local machine, the essential piece is to have a working ODBC_CONNECTI
 Here is how you can build a container with [snowflake](https://docs.snowflake.com/en/user-guide/odbc.html) and [mysql](https://dev.mysql.com/downloads/connector/odbc/) odbc drivers.
 
 ```bash
-docker build ./deploy -f ./deploy/Dockerfile -t odbc
+docker build . -f ./deploy/Dockerfile -t flightsql-odbc-server
 ```
 
 The paths to those drivers are:
@@ -37,7 +37,7 @@ The paths to those drivers are:
 ```bash
 export SNOW_ODBC_CONNECTION_STRING="Driver=/usr/lib/snowflake/odbc/lib/libSnowflake.so;Server=account.eu-central-1.snowflakecomputing.com;UID=DEMO;PWD=DEMO;database=TEST_DEMO_DB;warehouse=DEMO_DWH"
 export MYSQL_ODBC_CONNECTION_STRING="Driver=/mariadb-connector-odbc-2.0.15-ga-debian-x86_64/lib/libmaodbc.so;SERVER=hostname;USER=demo;PASSWORD=demo;PORT=3306;database=demo"
-docker run --rm -it -e ODBC_CONNECTION_STRING="$MYSQL_ODBC_CONNECTION_STRING" -p 52358:52358 odbc
+docker run --rm -it -e ODBC_CONNECTION_STRING="$MYSQL_ODBC_CONNECTION_STRING" -p 52358:52358 flightsql-odbc-server
 ```
 
 
