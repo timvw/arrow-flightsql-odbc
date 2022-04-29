@@ -27,6 +27,6 @@ jobs:
         with:
           context: .
           push: true
-          file: ./deployment/Dockerfile
+          file: ./deploy/Dockerfile
           tags: |
             docker.io/timvw/flightsql-odbc-server:main
