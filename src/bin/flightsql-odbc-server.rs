@@ -2,6 +2,7 @@ use arrow_flightsql_odbc::arrow_flight_protocol::flight_service_server::FlightSe
 use arrow_flightsql_odbc::{MyServer, MyServerError};
 use std::env;
 use tonic::transport::Server;
+use tokio::signal;
 
 #[tokio::main]
 async fn main() -> Result<(), MyServerError> {
@@ -29,8 +30,12 @@ async fn main() -> Result<(), MyServerError> {
     Server::builder()
         .add_service(FlightServiceServer::new(myserver))
         .add_service(reflection_server)
-        .serve(addr)
+        .serve_with_shutdown(addr, ctrl_c())
         .await?;
 
     Ok(())
+}
+
+async fn ctrl_c() -> () {
+    let _ = signal::ctrl_c().await;
 }
