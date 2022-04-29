@@ -24,9 +24,11 @@ jobs:
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v2
+        env:
+          IMAGE_TAG: ${{ github.sha }}
         with:
           context: .
           push: true
           file: ./deploy/Dockerfile
           tags: |
-            docker.io/timvw/flightsql-odbc-server:main
+            docker.io/timvw/flightsql-odbc-server:$IMAGE_TAG
