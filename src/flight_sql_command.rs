@@ -1,9 +1,9 @@
-use prost::Message;
 use crate::arrow_flight_protocol::{FlightDescriptor, Ticket};
 use crate::arrow_flight_protocol_sql::{CommandGetTables, CommandStatementQuery};
-use crate::error::MyServerError;
 use crate::error;
+use crate::error::MyServerError;
 use crate::util::*;
+use prost::Message;
 
 #[derive(Debug, Clone)]
 pub enum FlightSqlCommand {
@@ -12,24 +12,26 @@ pub enum FlightSqlCommand {
 }
 
 impl FlightSqlCommand {
-
     fn try_parse_bytes<B: bytes::Buf>(buf: B) -> Result<FlightSqlCommand, MyServerError> {
-        let any: prost_types::Any = prost::Message::decode(buf)
-            .map_err(error::decode_error_to_status)?;
+        let any: prost_types::Any =
+            prost::Message::decode(buf).map_err(error::decode_error_to_status)?;
 
         match any {
             _ if any.is::<CommandStatementQuery>() => {
-                let command = any.unpack()?
-                    .expect("unreachable");
+                let command = any.unpack()?.expect("unreachable");
                 Ok(FlightSqlCommand::StatementQuery(command))
-            },
+            }
             _ if any.is::<CommandGetTables>() => {
-                let command = any.unpack()
+                let command = any
+                    .unpack()
                     .map_err(error::arrow_error_to_status)?
                     .expect("unreachable");
                 Ok(FlightSqlCommand::GetTables(command))
-            },
-            _ => Err(MyServerError::NotImplementedYet(format!("still need to implement support for {}", any.type_url))),
+            }
+            _ => Err(MyServerError::NotImplementedYet(format!(
+                "still need to implement support for {}",
+                any.type_url
+            ))),
         }
     }
 
@@ -37,7 +39,9 @@ impl FlightSqlCommand {
         FlightSqlCommand::try_parse_bytes(&*ticket.ticket)
     }
 
-    pub fn try_parse_flight_descriptor(flight_descriptor: FlightDescriptor) -> Result<FlightSqlCommand, MyServerError> {
+    pub fn try_parse_flight_descriptor(
+        flight_descriptor: FlightDescriptor,
+    ) -> Result<FlightSqlCommand, MyServerError> {
         FlightSqlCommand::try_parse_bytes(&*flight_descriptor.cmd)
     }
 
@@ -46,8 +50,6 @@ impl FlightSqlCommand {
             FlightSqlCommand::StatementQuery(cmd) => cmd.as_any().encode_to_vec(),
             FlightSqlCommand::GetTables(cmd) => cmd.as_any().encode_to_vec(),
         };
-        Ticket {
-            ticket,
-        }
+        Ticket { ticket }
     }
 }

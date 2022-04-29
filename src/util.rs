@@ -1,9 +1,9 @@
-use std::ops::Deref;
-use arrow::datatypes::Schema;
 use crate::arrow_flight_protocol_sql::*;
+use arrow::datatypes::Schema;
 use arrow::error::{ArrowError, Result as ArrowResult};
 use arrow::ipc::writer::{EncodedData, IpcDataGenerator, IpcWriteOptions};
 use prost::Message;
+use std::ops::Deref;
 
 /// ProstMessageExt are useful utility methods for prost::Message types
 pub trait ProstMessageExt: prost::Message + Default {
@@ -111,10 +111,7 @@ impl<'a> SchemaAsIpc<'a> {
 #[derive(Debug)]
 pub struct IpcMessage(pub Vec<u8>);
 
-fn flight_schema_as_encoded_data(
-    arrow_schema: &Schema,
-    options: &IpcWriteOptions,
-) -> EncodedData {
+fn flight_schema_as_encoded_data(arrow_schema: &Schema, options: &IpcWriteOptions) -> EncodedData {
     let data_gen = IpcDataGenerator::default();
     data_gen.schema_to_bytes(arrow_schema, options)
 }

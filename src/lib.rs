@@ -1,4 +1,3 @@
-
 /*
 pub mod arrow_flight_protocol {
     tonic::include_proto!("arrow.flight.protocol"); // The string specified here must match the proto package name
@@ -16,14 +15,15 @@ pub mod arrow_flight_protocol;
 pub mod arrow_flight_protocol_sql;
 
 pub const FLIGHT_DESCRIPTOR_SET: &[u8] = tonic::include_file_descriptor_set!("flight_descriptor");
-pub const FLIGHT_SQL_DESCRIPTOR_SET: &[u8] = tonic::include_file_descriptor_set!("flight_sql_descriptor");
+pub const FLIGHT_SQL_DESCRIPTOR_SET: &[u8] =
+    tonic::include_file_descriptor_set!("flight_sql_descriptor");
 
 mod error;
 pub use error::*;
 
-mod util;
-mod odbc_command_handler;
 mod flight_sql_command;
+mod odbc_command_handler;
+mod util;
 
 mod myserver;
 pub use myserver::*;

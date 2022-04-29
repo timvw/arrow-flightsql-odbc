@@ -36,7 +36,7 @@ pub struct CommandGetSqlInfo {
     /// Flight SQL Servers may choose to include additional metadata above and beyond the specified set, however they must
     /// at least return the specified set. IDs ranging from 0 to 10,000 (exclusive) are reserved for future use.
     /// If additional metadata is included, the metadata IDs should start from 10,000.
-    #[prost(uint32, repeated, tag="1")]
+    #[prost(uint32, repeated, tag = "1")]
     pub info: ::prost::alloc::vec::Vec<u32>,
 }
 ///
@@ -100,7 +100,7 @@ pub struct CommandGetSqlInfo {
 pub struct CommandGetXdbcTypeInfo {
     ///
     /// Specifies the data type to search for the info.
-    #[prost(int32, optional, tag="1")]
+    #[prost(int32, optional, tag = "1")]
     pub data_type: ::core::option::Option<i32>,
 }
 ///
@@ -116,8 +116,7 @@ pub struct CommandGetXdbcTypeInfo {
 /// >
 /// The returned data should be ordered by catalog_name.
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct CommandGetCatalogs {
-}
+pub struct CommandGetCatalogs {}
 ///
 /// Represents a request to retrieve the list of database schemas on a Flight SQL enabled backend.
 /// The definition of a database schema depends on vendor/implementation. It is usually a collection of tables.
@@ -137,7 +136,7 @@ pub struct CommandGetDbSchemas {
     /// Specifies the Catalog to search for the tables.
     /// An empty string retrieves those without a catalog.
     /// If omitted the catalog name should not be used to narrow the search.
-    #[prost(string, optional, tag="1")]
+    #[prost(string, optional, tag = "1")]
     pub catalog: ::core::option::Option<::prost::alloc::string::String>,
     ///
     /// Specifies a filter pattern for schemas to search for.
@@ -145,7 +144,7 @@ pub struct CommandGetDbSchemas {
     /// In the pattern string, two special characters can be used to denote matching rules:
     ///    - "%" means to match any substring with 0 or more characters.
     ///    - "_" means to match any one character.
-    #[prost(string, optional, tag="2")]
+    #[prost(string, optional, tag = "2")]
     pub db_schema_filter_pattern: ::core::option::Option<::prost::alloc::string::String>,
 }
 ///
@@ -180,7 +179,7 @@ pub struct CommandGetTables {
     /// Specifies the Catalog to search for the tables.
     /// An empty string retrieves those without a catalog.
     /// If omitted the catalog name should not be used to narrow the search.
-    #[prost(string, optional, tag="1")]
+    #[prost(string, optional, tag = "1")]
     pub catalog: ::core::option::Option<::prost::alloc::string::String>,
     ///
     /// Specifies a filter pattern for schemas to search for.
@@ -188,7 +187,7 @@ pub struct CommandGetTables {
     /// In the pattern string, two special characters can be used to denote matching rules:
     ///    - "%" means to match any substring with 0 or more characters.
     ///    - "_" means to match any one character.
-    #[prost(string, optional, tag="2")]
+    #[prost(string, optional, tag = "2")]
     pub db_schema_filter_pattern: ::core::option::Option<::prost::alloc::string::String>,
     ///
     /// Specifies a filter pattern for tables to search for.
@@ -196,16 +195,16 @@ pub struct CommandGetTables {
     /// In the pattern string, two special characters can be used to denote matching rules:
     ///    - "%" means to match any substring with 0 or more characters.
     ///    - "_" means to match any one character.
-    #[prost(string, optional, tag="3")]
+    #[prost(string, optional, tag = "3")]
     pub table_name_filter_pattern: ::core::option::Option<::prost::alloc::string::String>,
     ///
     /// Specifies a filter of table types which must match.
     /// The table types depend on vendor/implementation. It is usually used to separate tables from views or system tables.
     /// TABLE, VIEW, and SYSTEM TABLE are commonly supported.
-    #[prost(string, repeated, tag="4")]
+    #[prost(string, repeated, tag = "4")]
     pub table_types: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     /// Specifies if the Arrow schema should be returned for found tables.
-    #[prost(bool, tag="5")]
+    #[prost(bool, tag = "5")]
     pub include_schema: bool,
 }
 ///
@@ -222,8 +221,7 @@ pub struct CommandGetTables {
 /// >
 /// The returned data should be ordered by table_type.
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct CommandGetTableTypes {
-}
+pub struct CommandGetTableTypes {}
 ///
 /// Represents a request to retrieve the primary keys of a table on a Flight SQL enabled backend.
 /// Used in the command member of FlightDescriptor for the following RPC calls:
@@ -246,16 +244,16 @@ pub struct CommandGetPrimaryKeys {
     /// Specifies the catalog to search for the table.
     /// An empty string retrieves those without a catalog.
     /// If omitted the catalog name should not be used to narrow the search.
-    #[prost(string, optional, tag="1")]
+    #[prost(string, optional, tag = "1")]
     pub catalog: ::core::option::Option<::prost::alloc::string::String>,
     ///
     /// Specifies the schema to search for the table.
     /// An empty string retrieves those without a schema.
     /// If omitted the schema name should not be used to narrow the search.
-    #[prost(string, optional, tag="2")]
+    #[prost(string, optional, tag = "2")]
     pub db_schema: ::core::option::Option<::prost::alloc::string::String>,
     /// Specifies the table to get the primary keys for.
-    #[prost(string, tag="3")]
+    #[prost(string, tag = "3")]
     pub table: ::prost::alloc::string::String,
 }
 ///
@@ -289,16 +287,16 @@ pub struct CommandGetExportedKeys {
     /// Specifies the catalog to search for the foreign key table.
     /// An empty string retrieves those without a catalog.
     /// If omitted the catalog name should not be used to narrow the search.
-    #[prost(string, optional, tag="1")]
+    #[prost(string, optional, tag = "1")]
     pub catalog: ::core::option::Option<::prost::alloc::string::String>,
     ///
     /// Specifies the schema to search for the foreign key table.
     /// An empty string retrieves those without a schema.
     /// If omitted the schema name should not be used to narrow the search.
-    #[prost(string, optional, tag="2")]
+    #[prost(string, optional, tag = "2")]
     pub db_schema: ::core::option::Option<::prost::alloc::string::String>,
     /// Specifies the foreign key table to get the foreign keys for.
-    #[prost(string, tag="3")]
+    #[prost(string, tag = "3")]
     pub table: ::prost::alloc::string::String,
 }
 ///
@@ -336,16 +334,16 @@ pub struct CommandGetImportedKeys {
     /// Specifies the catalog to search for the primary key table.
     /// An empty string retrieves those without a catalog.
     /// If omitted the catalog name should not be used to narrow the search.
-    #[prost(string, optional, tag="1")]
+    #[prost(string, optional, tag = "1")]
     pub catalog: ::core::option::Option<::prost::alloc::string::String>,
     ///
     /// Specifies the schema to search for the primary key table.
     /// An empty string retrieves those without a schema.
     /// If omitted the schema name should not be used to narrow the search.
-    #[prost(string, optional, tag="2")]
+    #[prost(string, optional, tag = "2")]
     pub db_schema: ::core::option::Option<::prost::alloc::string::String>,
     /// Specifies the primary key table to get the foreign keys for.
-    #[prost(string, tag="3")]
+    #[prost(string, tag = "3")]
     pub table: ::prost::alloc::string::String,
 }
 ///
@@ -385,33 +383,33 @@ pub struct CommandGetCrossReference {
     /// The catalog name where the parent table is.
     /// An empty string retrieves those without a catalog.
     /// If omitted the catalog name should not be used to narrow the search.
-    #[prost(string, optional, tag="1")]
+    #[prost(string, optional, tag = "1")]
     pub pk_catalog: ::core::option::Option<::prost::alloc::string::String>,
     ///*
     /// The Schema name where the parent table is.
     /// An empty string retrieves those without a schema.
     /// If omitted the schema name should not be used to narrow the search.
-    #[prost(string, optional, tag="2")]
+    #[prost(string, optional, tag = "2")]
     pub pk_db_schema: ::core::option::Option<::prost::alloc::string::String>,
     ///*
     /// The parent table name. It cannot be null.
-    #[prost(string, tag="3")]
+    #[prost(string, tag = "3")]
     pub pk_table: ::prost::alloc::string::String,
     ///*
     /// The catalog name where the foreign table is.
     /// An empty string retrieves those without a catalog.
     /// If omitted the catalog name should not be used to narrow the search.
-    #[prost(string, optional, tag="4")]
+    #[prost(string, optional, tag = "4")]
     pub fk_catalog: ::core::option::Option<::prost::alloc::string::String>,
     ///*
     /// The schema name where the foreign table is.
     /// An empty string retrieves those without a schema.
     /// If omitted the schema name should not be used to narrow the search.
-    #[prost(string, optional, tag="5")]
+    #[prost(string, optional, tag = "5")]
     pub fk_db_schema: ::core::option::Option<::prost::alloc::string::String>,
     ///*
     /// The foreign table name. It cannot be null.
-    #[prost(string, tag="6")]
+    #[prost(string, tag = "6")]
     pub fk_table: ::prost::alloc::string::String,
 }
 // SQL Execution Action Messages
@@ -421,7 +419,7 @@ pub struct CommandGetCrossReference {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ActionCreatePreparedStatementRequest {
     /// The valid SQL string to create a prepared statement for.
-    #[prost(string, tag="1")]
+    #[prost(string, tag = "1")]
     pub query: ::prost::alloc::string::String,
 }
 ///
@@ -433,15 +431,15 @@ pub struct ActionCreatePreparedStatementRequest {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ActionCreatePreparedStatementResult {
     /// Opaque handle for the prepared statement on the server.
-    #[prost(bytes="vec", tag="1")]
+    #[prost(bytes = "vec", tag = "1")]
     pub prepared_statement_handle: ::prost::alloc::vec::Vec<u8>,
     /// If a result set generating query was provided, dataset_schema contains the
     /// schema of the dataset as described in Schema.fbs::Schema, it is serialized as an IPC message.
-    #[prost(bytes="vec", tag="2")]
+    #[prost(bytes = "vec", tag = "2")]
     pub dataset_schema: ::prost::alloc::vec::Vec<u8>,
     /// If the query provided contained parameters, parameter_schema contains the
     /// schema of the expected parameters as described in Schema.fbs::Schema, it is serialized as an IPC message.
-    #[prost(bytes="vec", tag="3")]
+    #[prost(bytes = "vec", tag = "3")]
     pub parameter_schema: ::prost::alloc::vec::Vec<u8>,
 }
 ///
@@ -450,7 +448,7 @@ pub struct ActionCreatePreparedStatementResult {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ActionClosePreparedStatementRequest {
     /// Opaque handle for the prepared statement on the server.
-    #[prost(bytes="vec", tag="1")]
+    #[prost(bytes = "vec", tag = "1")]
     pub prepared_statement_handle: ::prost::alloc::vec::Vec<u8>,
 }
 // SQL Execution Messages.
@@ -473,7 +471,7 @@ pub struct ActionClosePreparedStatementRequest {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CommandStatementQuery {
     /// The SQL syntax.
-    #[prost(string, tag="1")]
+    #[prost(string, tag = "1")]
     pub query: ::prost::alloc::string::String,
 }
 ///*
@@ -482,7 +480,7 @@ pub struct CommandStatementQuery {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TicketStatementQuery {
     /// Unique identifier for the instance of the statement to execute.
-    #[prost(bytes="vec", tag="1")]
+    #[prost(bytes = "vec", tag = "1")]
     pub statement_handle: ::prost::alloc::vec::Vec<u8>,
 }
 ///
@@ -504,7 +502,7 @@ pub struct TicketStatementQuery {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CommandPreparedStatementQuery {
     /// Opaque handle for the prepared statement on the server.
-    #[prost(bytes="vec", tag="1")]
+    #[prost(bytes = "vec", tag = "1")]
     pub prepared_statement_handle: ::prost::alloc::vec::Vec<u8>,
 }
 ///
@@ -513,7 +511,7 @@ pub struct CommandPreparedStatementQuery {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CommandStatementUpdate {
     /// The SQL syntax.
-    #[prost(string, tag="1")]
+    #[prost(string, tag = "1")]
     pub query: ::prost::alloc::string::String,
 }
 ///
@@ -523,7 +521,7 @@ pub struct CommandStatementUpdate {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CommandPreparedStatementUpdate {
     /// Opaque handle for the prepared statement on the server.
-    #[prost(bytes="vec", tag="1")]
+    #[prost(bytes = "vec", tag = "1")]
     pub prepared_statement_handle: ::prost::alloc::vec::Vec<u8>,
 }
 ///
@@ -534,7 +532,7 @@ pub struct CommandPreparedStatementUpdate {
 pub struct DoPutUpdateResult {
     /// The number of records updated. A return value of -1 represents
     /// an unknown updated record count.
-    #[prost(int64, tag="1")]
+    #[prost(int64, tag = "1")]
     pub record_count: i64,
 }
 /// Options for CommandGetSqlInfo.
@@ -542,7 +540,6 @@ pub struct DoPutUpdateResult {
 #[repr(i32)]
 pub enum SqlInfo {
     // Server Information [0-500): Provides basic information about the Flight SQL Server.
-
     /// Retrieves a UTF-8 string with the name of the Flight SQL Server.
     FlightSqlServerName = 0,
     /// Retrieves a UTF-8 string with the native version of the Flight SQL Server.
@@ -557,7 +554,6 @@ pub enum SqlInfo {
     /// - true: if read only
     FlightSqlServerReadOnly = 3,
     // SQL Syntax Information [500-1000): provides information about SQL syntax supported by the Flight SQL Server.
-
     ///
     /// Retrieves a boolean value indicating whether the Flight SQL Server supports CREATE and DROP of catalogs.
     ///

@@ -1,17 +1,17 @@
-use arrow::datatypes::Schema;
-use arrow_odbc::odbc_api::{Connection, CursorImpl, Environment};
-use arrow_odbc::odbc_api::handles::StatementImpl;
-use tokio::sync::oneshot;
-use tonic::Status;
-use arrow_odbc::OdbcReader;
-use arrow::ipc::writer::{EncodedData, IpcWriteOptions};
-use tokio::task;
-use arrow::record_batch::RecordBatch;
-use arrow::ipc;
 use crate::arrow_flight_protocol::{FlightData, Ticket};
 use crate::arrow_flight_protocol_sql::{CommandGetTables, CommandStatementQuery};
 use crate::error::MyServerError;
 use crate::flight_sql_command::FlightSqlCommand;
+use arrow::datatypes::Schema;
+use arrow::ipc;
+use arrow::ipc::writer::{EncodedData, IpcWriteOptions};
+use arrow::record_batch::RecordBatch;
+use arrow_odbc::odbc_api::handles::StatementImpl;
+use arrow_odbc::odbc_api::{Connection, CursorImpl, Environment};
+use arrow_odbc::OdbcReader;
+use tokio::sync::oneshot;
+use tokio::task;
+use tonic::Status;
 
 #[derive(Debug)]
 pub enum OdbcCommand {
@@ -44,7 +44,6 @@ pub struct OdbcCommandHandler {
 }
 
 impl OdbcCommandHandler {
-
     pub fn handle(&mut self, cmd: OdbcCommand) -> Result<(), MyServerError> {
         match cmd {
             OdbcCommand::GetCommandSchema(x) => self.handle_get_command_schema(x),
@@ -53,31 +52,43 @@ impl OdbcCommandHandler {
     }
 
     fn get_connection(&self) -> Result<Connection<'_>, MyServerError> {
-        self.odbc_environment.connect_with_connection_string(self.odbc_connection_string.as_str())
+        self.odbc_environment
+            .connect_with_connection_string(self.odbc_connection_string.as_str())
             .map_err(|e| MyServerError::OdbcApiError(e))
     }
 
-    fn get_result_cursor<'s>(&self, connection: &'s Connection<'s>, command: FlightSqlCommand) -> Result<CursorImpl<StatementImpl<'s>>, MyServerError> {
+    fn get_result_cursor<'s>(
+        &self,
+        connection: &'s Connection<'s>,
+        command: FlightSqlCommand,
+    ) -> Result<CursorImpl<StatementImpl<'s>>, MyServerError> {
         match command {
             FlightSqlCommand::StatementQuery(x) => self.get_statement_query(&connection, x),
             FlightSqlCommand::GetTables(x) => self.get_tables_query(&connection, x),
         }
     }
 
-    fn handle_get_command_schema(&mut self, req: GetCommandSchemaRequest)-> Result<(), MyServerError> {
+    fn handle_get_command_schema(
+        &mut self,
+        req: GetCommandSchemaRequest,
+    ) -> Result<(), MyServerError> {
         let connection = self.get_connection()?;
         let cursor = self.get_result_cursor(&connection, req.command.clone())?;
         let ticket = req.command.to_ticket();
         self.send_schema_from_cursor(req.response_sender, cursor, ticket)
     }
 
-    fn handle_get_command_data(&mut self, req: GetCommandDataRequest)-> Result<(), MyServerError> {
+    fn handle_get_command_data(&mut self, req: GetCommandDataRequest) -> Result<(), MyServerError> {
         let connection = self.get_connection()?;
         let cursor = self.get_result_cursor(&connection, req.command.clone())?;
         self.send_flight_data_from_cursor(req.response_sender, cursor)
     }
 
-    fn get_statement_query<'s>(&self, connection: &'s Connection<'s>, cmd: CommandStatementQuery) -> Result<CursorImpl<StatementImpl<'s>>, MyServerError> {
+    fn get_statement_query<'s>(
+        &self,
+        connection: &'s Connection<'s>,
+        cmd: CommandStatementQuery,
+    ) -> Result<CursorImpl<StatementImpl<'s>>, MyServerError> {
         let parameters = ();
         let cursor = connection
             .execute(cmd.query.as_str(), parameters)?
@@ -85,25 +96,42 @@ impl OdbcCommandHandler {
         Ok(cursor)
     }
 
-    fn get_tables_query<'s>(&self, connection: &'s Connection<'s>, cmd: CommandGetTables) -> Result<CursorImpl<StatementImpl<'s>>, MyServerError> {
+    fn get_tables_query<'s>(
+        &self,
+        connection: &'s Connection<'s>,
+        cmd: CommandGetTables,
+    ) -> Result<CursorImpl<StatementImpl<'s>>, MyServerError> {
         let cursor = connection.tables(
             cmd.catalog.unwrap_or("".to_string()).as_str(),
-            cmd.db_schema_filter_pattern.unwrap_or("".to_string()).as_str(),
-            cmd.table_name_filter_pattern.unwrap_or("".to_string()).as_str(),
-            "")?;
+            cmd.db_schema_filter_pattern
+                .unwrap_or("".to_string())
+                .as_str(),
+            cmd.table_name_filter_pattern
+                .unwrap_or("".to_string())
+                .as_str(),
+            "",
+        )?;
         Ok(cursor)
     }
 
-    fn send_schema_from_cursor<'s>(&self, response_sender: oneshot::Sender<GetSchemaResponse>, cursor: CursorImpl<StatementImpl<'s>>, ticket: Ticket) -> Result<(), MyServerError> {
+    fn send_schema_from_cursor<'s>(
+        &self,
+        response_sender: oneshot::Sender<GetSchemaResponse>,
+        cursor: CursorImpl<StatementImpl<'s>>,
+        ticket: Ticket,
+    ) -> Result<(), MyServerError> {
         let schema = arrow_odbc::arrow_schema_from(&cursor)?;
 
-        response_sender.send(GetSchemaResponse {
-            ticket,
-            schema
-        }).map_err(|_| MyServerError::SendError("failed to response...".to_string()))
+        response_sender
+            .send(GetSchemaResponse { ticket, schema })
+            .map_err(|_| MyServerError::SendError("failed to response...".to_string()))
     }
 
-    fn send_flight_data_from_cursor<'s>(&self, response_sender: tokio::sync::mpsc::Sender<Result<FlightData, Status>>, cursor: CursorImpl<StatementImpl<'s>>) -> Result<(), MyServerError> {
+    fn send_flight_data_from_cursor<'s>(
+        &self,
+        response_sender: tokio::sync::mpsc::Sender<Result<FlightData, Status>>,
+        cursor: CursorImpl<StatementImpl<'s>>,
+    ) -> Result<(), MyServerError> {
         let arrow_record_batches = OdbcReader::new(cursor, 100)
             //.map_err(arrow_odbc_err_to_status)?;
             .expect("failed to create odbc reader");
