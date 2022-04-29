@@ -40,6 +40,7 @@ export MYSQL_ODBC_CONNECTION_STRING="Driver=/mariadb-connector-odbc-2.0.15-ga-de
 docker run --rm -it -e ODBC_CONNECTION_STRING="$MYSQL_ODBC_CONNECTION_STRING" -p 52358:52358 flightsql-odbc-server
 ```
 
+## Resources
 
 Links:
 * https://arrow.apache.org/
