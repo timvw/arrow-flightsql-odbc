@@ -16,5 +16,6 @@
   "groupSlug": "all",
   "lockFileMaintenance": {
     "enabled": false
-  }
+  },
+  "dependencyDashboard": true
 }

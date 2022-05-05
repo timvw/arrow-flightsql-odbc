@@ -53,6 +53,11 @@ Protocols:
 
 Some code is copied from https://github.com/apache/arrow-rs/tree/master/arrow-flight/src/sql
 
+Update (and format) [renovate](https://www.whitesourcesoftware.com/free-developer-tools/renovate/) config
+```bash
+cat .github/renovate.json | jq | sponge .github/renovate.json
+```
+
 
 
 
