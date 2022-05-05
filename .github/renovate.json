@@ -8,7 +8,9 @@
         "*"
       ],
       "groupName": "all dependencies",
-      "groupSlug": "all"
+      "groupSlug": "all",
+      "automerge": true,
+      "automergeType": "branch"
     }
   ],
   "groupName": "all dependencies",
