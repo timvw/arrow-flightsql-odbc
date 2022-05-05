@@ -4,13 +4,17 @@
   ],
   "packageRules": [
     {
-      "updateTypes": [
-        "minor",
-        "patch",
-        "pin",
-        "digest"
+      "matchPackagePatterns": [
+        "*"
       ],
-      "automerge": true
+      "groupName": "all dependencies",
+      "groupSlug": "all"
     }
-  ]
+  ],
+  "groupName": "all dependencies",
+  "separateMajorMinor": false,
+  "groupSlug": "all",
+  "lockFileMaintenance": {
+    "enabled": false
+  }
 }
