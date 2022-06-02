@@ -48,6 +48,7 @@ Links:
 * https://arrow.apache.org/blog/2022/02/16/introducing-arrow-flight-sql/
 
 Protocols:
+* https://github.com/apache/arrow/tree/master/format
 * [Flight](https://github.com/apache/arrow/blob/master/format/Flight.proto)
 * [FlightSql](https://github.com/apache/arrow/blob/master/format/FlightSql.proto)
 

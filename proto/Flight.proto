@@ -70,7 +70,7 @@ service FlightService {
    * GetFlightInfo this interface may generate a new flight that was not previously
    * available in ListFlights.
    */
-   rpc GetSchema(FlightDescriptor) returns (SchemaResult) {}
+  rpc GetSchema(FlightDescriptor) returns (SchemaResult) {}
 
   /*
    * Retrieve a single stream associated with a particular descriptor
