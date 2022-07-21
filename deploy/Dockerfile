@@ -1,4 +1,4 @@
-FROM rust:1.60 as builder
+FROM rust:1.62 as builder
 RUN apt-get update
 RUN apt-get install -y cmake musl-tools clang libc++-dev build-essential autoconf libtool pkg-config
 RUN apt-get install -y unixodbc-dev
