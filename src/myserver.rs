@@ -184,6 +184,7 @@ fn make_flight_info(
         endpoint: vec![fiep],
         total_records: -1,
         total_bytes: -1,
+        ordered: true,
     }))
 }
 

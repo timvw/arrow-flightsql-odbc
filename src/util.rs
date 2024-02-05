@@ -4,6 +4,7 @@ use arrow::error::{ArrowError, Result as ArrowResult};
 use arrow::ipc::writer::{EncodedData, IpcDataGenerator, IpcWriteOptions};
 use prost::Message;
 use std::ops::Deref;
+use crate::arrow_flight_protocol::FlightData;
 
 /// ProstMessageExt are useful utility methods for prost::Message types
 pub trait ProstMessageExt: prost::Message + Default {
@@ -114,6 +115,21 @@ pub struct IpcMessage(pub Vec<u8>);
 fn flight_schema_as_encoded_data(arrow_schema: &Schema, options: &IpcWriteOptions) -> EncodedData {
     let data_gen = IpcDataGenerator::default();
     data_gen.schema_to_bytes(arrow_schema, options)
+}
+
+fn flight_schema_as_flatbuffer(schema: &Schema, options: &IpcWriteOptions) -> IpcMessage {
+    let encoded_data = flight_schema_as_encoded_data(schema, options);
+    IpcMessage(encoded_data.ipc_message.into())
+}
+
+impl From<SchemaAsIpc<'_>> for FlightData {
+    fn from(schema_ipc: SchemaAsIpc) -> Self {
+        let IpcMessage(vals) = flight_schema_as_flatbuffer(schema_ipc.0, schema_ipc.1);
+        FlightData {
+            data_header: vals,
+            ..Default::default()
+        }
+    }
 }
 
 impl TryFrom<SchemaAsIpc<'_>> for IpcMessage {
