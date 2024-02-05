@@ -5,6 +5,8 @@ use arrow::ipc::writer::{EncodedData, IpcDataGenerator, IpcWriteOptions};
 use prost::Message;
 use std::ops::Deref;
 use crate::arrow_flight_protocol::FlightData;
+use arrow::ipc::writer;
+use arrow::record_batch::RecordBatch;
 
 /// ProstMessageExt are useful utility methods for prost::Message types
 pub trait ProstMessageExt: prost::Message + Default {
@@ -159,4 +161,32 @@ impl<'a> Deref for SchemaAsIpc<'a> {
     fn deref(&self) -> &Self::Target {
         &self.pair
     }
+}
+
+/// Convert `RecordBatch`es to wire protocol `FlightData`s
+pub fn batches_to_flight_data(
+    schema: &Schema,
+    batches: Vec<RecordBatch>,
+) -> Result<Vec<FlightData>, ArrowError>
+{
+    let options = IpcWriteOptions::default();
+    let schema_flight_data: FlightData = crate::util::SchemaAsIpc::new(schema, &options).into();
+    let mut dictionaries = vec![];
+    let mut flight_data = vec![];
+
+    let data_gen = writer::IpcDataGenerator::default();
+    let mut dictionary_tracker = writer::DictionaryTracker::new(false);
+
+    for batch in batches.iter() {
+        let (encoded_dictionaries, encoded_batch) =
+            data_gen.encoded_batch(batch, &mut dictionary_tracker, &options)?;
+
+        dictionaries.extend(encoded_dictionaries.into_iter().map(Into::into));
+        flight_data.push(encoded_batch.into());
+    }
+    let mut stream = vec![schema_flight_data];
+    stream.extend(dictionaries);
+    stream.extend(flight_data);
+    let flight_data: Vec<_> = stream.into_iter().collect();
+    Ok(flight_data)
 }

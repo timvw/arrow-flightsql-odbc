@@ -3,17 +3,14 @@ use crate::arrow_flight_protocol_sql::{CommandGetTables, CommandStatementQuery};
 use crate::error::MyServerError;
 use crate::flight_sql_command::FlightSqlCommand;
 use arrow::datatypes::Schema;
-use arrow::ipc;
-use arrow::ipc::writer::{EncodedData, IpcWriteOptions};
-use arrow::ipc::writer;
-use arrow::record_batch::RecordBatch;
+use arrow::ipc::writer::EncodedData;
 use arrow_odbc::odbc_api::handles::StatementImpl;
 use arrow_odbc::odbc_api::{Connection, ConnectionOptions, CursorImpl, Environment};
 use arrow_odbc::OdbcReaderBuilder;
-use arrow_schema::ArrowError;
 use tokio::sync::oneshot;
 use tokio::task;
 use tonic::Status;
+use crate::util::batches_to_flight_data;
 
 #[derive(Debug)]
 pub enum OdbcCommand {
@@ -83,8 +80,6 @@ impl OdbcCommandHandler {
     fn handle_get_command_data(&mut self, req: GetCommandDataRequest) -> Result<(), MyServerError> {
         let connection = self.get_connection()?;
         let mut cursor = self.get_result_cursor(&connection, req.command.clone())?;
-        //let mut cursor1 = self.get_result_cursor(&connection, req.command.clone())?;
-        //let mut cursor1 = cursor.clone();
         let schema = arrow_odbc::arrow_schema_from(&mut cursor)?;
         let cursor1 = cursor;
         self.send_flight_data_from_cursor(&schema, req.response_sender, cursor1)
@@ -127,8 +122,6 @@ impl OdbcCommandHandler {
         ticket: Ticket,
     ) -> Result<(), MyServerError> {
         let schema = arrow_odbc::arrow_schema_from(cursor)?;
-
-        //dbg!(&schema);
 
         response_sender
             .send(GetSchemaResponse { ticket, schema })
@@ -174,59 +167,6 @@ impl OdbcCommandHandler {
 
         Ok(())
     }
-}
-
-fn flight_data_from_arrow_schema(schema: &Schema, options: &IpcWriteOptions) -> FlightData {
-    crate::util::SchemaAsIpc::new(schema, options).into()
-}
-
-/// Convert `RecordBatch`es to wire protocol `FlightData`s
-fn batches_to_flight_data(
-    schema: &Schema,
-    batches: Vec<RecordBatch>,
-) -> Result<Vec<FlightData>, ArrowError>
-{
-    let options = IpcWriteOptions::default();
-    let schema_flight_data: FlightData = crate::util::SchemaAsIpc::new(schema, &options).into();
-    let mut dictionaries = vec![];
-    let mut flight_data = vec![];
-
-    let data_gen = writer::IpcDataGenerator::default();
-    let mut dictionary_tracker = writer::DictionaryTracker::new(false);
-
-    for batch in batches.iter() {
-        let (encoded_dictionaries, encoded_batch) =
-            data_gen.encoded_batch(batch, &mut dictionary_tracker, &options)?;
-
-        dictionaries.extend(encoded_dictionaries.into_iter().map(Into::into));
-        flight_data.push(encoded_batch.into());
-    }
-    let mut stream = vec![schema_flight_data];
-    stream.extend(dictionaries);
-    stream.extend(flight_data);
-    let flight_data: Vec<_> = stream.into_iter().collect();
-    Ok(flight_data)
-}
-
-
-/// Convert a `RecordBatch` to a vector of `FlightData` representing the bytes of the dictionaries
-/// and a `FlightData` representing the bytes of the batch's values
-fn flight_data_from_arrow_batch(
-    batch: &RecordBatch,
-    options: &IpcWriteOptions,
-) -> (Vec<FlightData>, FlightData) {
-    let data_gen = ipc::writer::IpcDataGenerator::default();
-    let mut dictionary_tracker = ipc::writer::DictionaryTracker::new(false);
-    dbg!(batch);
-
-    let (encoded_dictionaries, encoded_batch) = data_gen
-        .encoded_batch(batch, &mut dictionary_tracker, options)
-        .expect("DictionaryTracker configured above to not error.rs on replacement");
-
-    let flight_dictionaries = encoded_dictionaries.into_iter().map(Into::into).collect();
-    let flight_batch = encoded_batch.into();
-
-    (flight_dictionaries, flight_batch)
 }
 
 impl From<EncodedData> for FlightData {
