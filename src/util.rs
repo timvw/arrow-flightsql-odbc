@@ -170,7 +170,7 @@ pub fn batches_to_flight_data(
 ) -> Result<Vec<FlightData>, ArrowError>
 {
     let options = IpcWriteOptions::default();
-    let schema_flight_data: FlightData = crate::util::SchemaAsIpc::new(schema, &options).into();
+    let schema_flight_data: FlightData = SchemaAsIpc::new(schema, &options).into();
     let mut dictionaries = vec![];
     let mut flight_data = vec![];
 
