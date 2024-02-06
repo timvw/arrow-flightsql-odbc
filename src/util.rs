@@ -163,7 +163,7 @@ impl<'a> Deref for SchemaAsIpc<'a> {
     }
 }
 
-/// Convert `RecordBatch`es to wire protocol `FlightData`s
+// Convert `RecordBatch`es to wire protocol `FlightData`s
 pub fn batches_to_flight_data(
     schema: &Schema,
     batches: Vec<RecordBatch>,

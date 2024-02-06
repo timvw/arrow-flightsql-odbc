@@ -81,8 +81,8 @@ impl OdbcCommandHandler {
         let connection = self.get_connection()?;
         let mut cursor = self.get_result_cursor(&connection, req.command.clone())?;
         let schema = arrow_odbc::arrow_schema_from(&mut cursor)?;
-        let cursor1 = cursor;
-        self.send_flight_data_from_cursor(&schema, req.response_sender, cursor1)
+        let unmut_cursor = cursor;
+        self.send_flight_data_from_cursor(&schema, req.response_sender, unmut_cursor)
     }
 
     fn get_statement_query<'s>(
@@ -135,8 +135,6 @@ impl OdbcCommandHandler {
         cursor: CursorImpl<StatementImpl<'s>>,
     ) -> Result<(), MyServerError> {
         let arrow_record_batches = OdbcReaderBuilder::new().build(cursor)?;
-            //.map_err(arrow_odbc_err_to_status)?;
-            //.expect("failed to create odbc reader");
 
         let mut batchvec = vec![];
         for batchr in arrow_record_batches {
@@ -148,7 +146,6 @@ impl OdbcCommandHandler {
 
         match batches_to_flight_data(&schema, batchvec) {
             Ok(flight_data_vec) => {
-                log::info!("flight_data_vec size : {}", flight_data_vec.len());
                 for flight_data in flight_data_vec {
                     let rsp = response_sender.clone();
                         task::spawn_blocking(move || {
@@ -160,8 +157,7 @@ impl OdbcCommandHandler {
                 }
             }
             Err(arrow_error) => {
-                // Handle the error (e.g., log it)
-                log::error!("Error converting batches to FlightData: {}", arrow_error);
+                log::error!("Error converting batches to FlightData: {:?}", arrow_error);
             }
         }
 
