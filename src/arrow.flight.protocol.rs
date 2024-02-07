@@ -139,8 +139,21 @@ pub struct FlightInfo {
     /// In other words, an application can use multiple endpoints to
     /// represent partitioned data.
     ///
-    /// There is no ordering defined on endpoints. Hence, if the returned
-    /// data has an ordering, it should be returned in a single endpoint.
+    /// If the returned data has an ordering, an application can use
+    /// "FlightInfo.ordered = true" or should return the all data in a
+    /// single endpoint. Otherwise, there is no ordering defined on
+    /// endpoints or the data within.
+    ///
+    /// A client can read ordered data by reading data from returned
+    /// endpoints, in order, from front to back.
+    ///
+    /// Note that a client may ignore "FlightInfo.ordered = true". If an
+    /// ordering is important for an application, an application must
+    /// choose one of them:
+    ///
+    /// * An application requires that all clients must read data in
+    ///   returned endpoints order.
+    /// * An application must return the all data in a single endpoint.
     #[prost(message, repeated, tag="3")]
     pub endpoint: ::prost::alloc::vec::Vec<FlightEndpoint>,
     /// Set these to -1 if unknown.
@@ -148,6 +161,10 @@ pub struct FlightInfo {
     pub total_records: i64,
     #[prost(int64, tag="5")]
     pub total_bytes: i64,
+    ///
+    /// FlightEndpoints are in the same order as the data.
+    #[prost(bool, tag="6")]
+    pub ordered: bool,
 }
 ///
 /// A particular stream or split associated with a flight.
@@ -254,7 +271,7 @@ pub mod flight_service_client {
     where
         T: tonic::client::GrpcService<tonic::body::BoxBody>,
         T::Error: Into<StdError>,
-        T::ResponseBody: Default + Body<Data = Bytes> + Send + 'static,
+        T::ResponseBody: Body<Data = Bytes> + Send + 'static,
         <T::ResponseBody as Body>::Error: Into<StdError> + Send,
     {
         pub fn new(inner: T) -> Self {
@@ -267,6 +284,7 @@ pub mod flight_service_client {
         ) -> FlightServiceClient<InterceptedService<T, F>>
         where
             F: tonic::service::Interceptor,
+            T::ResponseBody: Default,
             T: tonic::codegen::Service<
                 http::Request<tonic::body::BoxBody>,
                 Response = http::Response<
@@ -303,9 +321,9 @@ pub mod flight_service_client {
             &mut self,
             request: impl tonic::IntoStreamingRequest<Message = super::HandshakeRequest>,
         ) -> Result<
-                tonic::Response<tonic::codec::Streaming<super::HandshakeResponse>>,
-                tonic::Status,
-            > {
+            tonic::Response<tonic::codec::Streaming<super::HandshakeResponse>>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -332,9 +350,9 @@ pub mod flight_service_client {
             &mut self,
             request: impl tonic::IntoRequest<super::Criteria>,
         ) -> Result<
-                tonic::Response<tonic::codec::Streaming<super::FlightInfo>>,
-                tonic::Status,
-            > {
+            tonic::Response<tonic::codec::Streaming<super::FlightInfo>>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -413,9 +431,9 @@ pub mod flight_service_client {
             &mut self,
             request: impl tonic::IntoRequest<super::Ticket>,
         ) -> Result<
-                tonic::Response<tonic::codec::Streaming<super::FlightData>>,
-                tonic::Status,
-            > {
+            tonic::Response<tonic::codec::Streaming<super::FlightData>>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -442,9 +460,9 @@ pub mod flight_service_client {
             &mut self,
             request: impl tonic::IntoStreamingRequest<Message = super::FlightData>,
         ) -> Result<
-                tonic::Response<tonic::codec::Streaming<super::PutResult>>,
-                tonic::Status,
-            > {
+            tonic::Response<tonic::codec::Streaming<super::PutResult>>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -470,9 +488,9 @@ pub mod flight_service_client {
             &mut self,
             request: impl tonic::IntoStreamingRequest<Message = super::FlightData>,
         ) -> Result<
-                tonic::Response<tonic::codec::Streaming<super::FlightData>>,
-                tonic::Status,
-            > {
+            tonic::Response<tonic::codec::Streaming<super::FlightData>>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -499,9 +517,9 @@ pub mod flight_service_client {
             &mut self,
             request: impl tonic::IntoRequest<super::Action>,
         ) -> Result<
-                tonic::Response<tonic::codec::Streaming<super::Result>>,
-                tonic::Status,
-            > {
+            tonic::Response<tonic::codec::Streaming<super::Result>>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -525,9 +543,9 @@ pub mod flight_service_client {
             &mut self,
             request: impl tonic::IntoRequest<super::Empty>,
         ) -> Result<
-                tonic::Response<tonic::codec::Streaming<super::ActionType>>,
-                tonic::Status,
-            > {
+            tonic::Response<tonic::codec::Streaming<super::ActionType>>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await

@@ -4,6 +4,9 @@ use arrow::error::{ArrowError, Result as ArrowResult};
 use arrow::ipc::writer::{EncodedData, IpcDataGenerator, IpcWriteOptions};
 use prost::Message;
 use std::ops::Deref;
+use crate::arrow_flight_protocol::FlightData;
+use arrow::ipc::writer;
+use arrow::record_batch::RecordBatch;
 
 /// ProstMessageExt are useful utility methods for prost::Message types
 pub trait ProstMessageExt: prost::Message + Default {
@@ -116,6 +119,21 @@ fn flight_schema_as_encoded_data(arrow_schema: &Schema, options: &IpcWriteOption
     data_gen.schema_to_bytes(arrow_schema, options)
 }
 
+fn flight_schema_as_flatbuffer(schema: &Schema, options: &IpcWriteOptions) -> IpcMessage {
+    let encoded_data = flight_schema_as_encoded_data(schema, options);
+    IpcMessage(encoded_data.ipc_message.into())
+}
+
+impl From<SchemaAsIpc<'_>> for FlightData {
+    fn from(schema_ipc: SchemaAsIpc) -> Self {
+        let IpcMessage(vals) = flight_schema_as_flatbuffer(schema_ipc.0, schema_ipc.1);
+        FlightData {
+            data_header: vals,
+            ..Default::default()
+        }
+    }
+}
+
 impl TryFrom<SchemaAsIpc<'_>> for IpcMessage {
     type Error = ArrowError;
 
@@ -143,4 +161,32 @@ impl<'a> Deref for SchemaAsIpc<'a> {
     fn deref(&self) -> &Self::Target {
         &self.pair
     }
+}
+
+// Convert `RecordBatch`es to wire protocol `FlightData`s
+pub fn batches_to_flight_data(
+    schema: &Schema,
+    batches: Vec<RecordBatch>,
+) -> Result<Vec<FlightData>, ArrowError>
+{
+    let options = IpcWriteOptions::default();
+    let schema_flight_data: FlightData = SchemaAsIpc::new(schema, &options).into();
+    let mut dictionaries = vec![];
+    let mut flight_data = vec![];
+
+    let data_gen = writer::IpcDataGenerator::default();
+    let mut dictionary_tracker = writer::DictionaryTracker::new(false);
+
+    for batch in batches.iter() {
+        let (encoded_dictionaries, encoded_batch) =
+            data_gen.encoded_batch(batch, &mut dictionary_tracker, &options)?;
+
+        dictionaries.extend(encoded_dictionaries.into_iter().map(Into::into));
+        flight_data.push(encoded_batch.into());
+    }
+    let mut stream = vec![schema_flight_data];
+    stream.extend(dictionaries);
+    stream.extend(flight_data);
+    let flight_data: Vec<_> = stream.into_iter().collect();
+    Ok(flight_data)
 }

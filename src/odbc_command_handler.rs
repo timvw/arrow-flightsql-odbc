@@ -3,15 +3,14 @@ use crate::arrow_flight_protocol_sql::{CommandGetTables, CommandStatementQuery};
 use crate::error::MyServerError;
 use crate::flight_sql_command::FlightSqlCommand;
 use arrow::datatypes::Schema;
-use arrow::ipc;
-use arrow::ipc::writer::{EncodedData, IpcWriteOptions};
-use arrow::record_batch::RecordBatch;
+use arrow::ipc::writer::EncodedData;
 use arrow_odbc::odbc_api::handles::StatementImpl;
-use arrow_odbc::odbc_api::{Connection, CursorImpl, Environment};
-use arrow_odbc::OdbcReader;
+use arrow_odbc::odbc_api::{Connection, ConnectionOptions, CursorImpl, Environment};
+use arrow_odbc::OdbcReaderBuilder;
 use tokio::sync::oneshot;
 use tokio::task;
 use tonic::Status;
+use crate::util::batches_to_flight_data;
 
 #[derive(Debug)]
 pub enum OdbcCommand {
@@ -53,7 +52,7 @@ impl OdbcCommandHandler {
 
     fn get_connection(&self) -> Result<Connection<'_>, MyServerError> {
         self.odbc_environment
-            .connect_with_connection_string(self.odbc_connection_string.as_str())
+            .connect_with_connection_string(self.odbc_connection_string.as_str(), ConnectionOptions::default())
             .map_err(|e| MyServerError::OdbcApiError(e))
     }
 
@@ -73,15 +72,17 @@ impl OdbcCommandHandler {
         req: GetCommandSchemaRequest,
     ) -> Result<(), MyServerError> {
         let connection = self.get_connection()?;
-        let cursor = self.get_result_cursor(&connection, req.command.clone())?;
+        let mut cursor = self.get_result_cursor(&connection, req.command.clone())?;
         let ticket = req.command.to_ticket();
-        self.send_schema_from_cursor(req.response_sender, cursor, ticket)
+        self.send_schema_from_cursor(req.response_sender, &mut cursor, ticket)
     }
 
     fn handle_get_command_data(&mut self, req: GetCommandDataRequest) -> Result<(), MyServerError> {
         let connection = self.get_connection()?;
-        let cursor = self.get_result_cursor(&connection, req.command.clone())?;
-        self.send_flight_data_from_cursor(req.response_sender, cursor)
+        let mut cursor = self.get_result_cursor(&connection, req.command.clone())?;
+        let schema = arrow_odbc::arrow_schema_from(&mut cursor)?;
+        let unmut_cursor = cursor;
+        self.send_flight_data_from_cursor(&schema, req.response_sender, unmut_cursor)
     }
 
     fn get_statement_query<'s>(
@@ -117,10 +118,10 @@ impl OdbcCommandHandler {
     fn send_schema_from_cursor<'s>(
         &self,
         response_sender: oneshot::Sender<GetSchemaResponse>,
-        cursor: CursorImpl<StatementImpl<'s>>,
+        cursor: &mut CursorImpl<StatementImpl<'s>>,
         ticket: Ticket,
     ) -> Result<(), MyServerError> {
-        let schema = arrow_odbc::arrow_schema_from(&cursor)?;
+        let schema = arrow_odbc::arrow_schema_from(cursor)?;
 
         response_sender
             .send(GetSchemaResponse { ticket, schema })
@@ -129,54 +130,39 @@ impl OdbcCommandHandler {
 
     fn send_flight_data_from_cursor<'s>(
         &self,
+        schema: &Schema,
         response_sender: tokio::sync::mpsc::Sender<Result<FlightData, Status>>,
         cursor: CursorImpl<StatementImpl<'s>>,
     ) -> Result<(), MyServerError> {
-        let arrow_record_batches = OdbcReader::new(cursor, 100)
-            //.map_err(arrow_odbc_err_to_status)?;
-            .expect("failed to create odbc reader");
+        let arrow_record_batches = OdbcReaderBuilder::new().build(cursor)?;
 
+        let mut batchvec = vec![];
         for batchr in arrow_record_batches {
             let batch = batchr.expect("failed to fetch batch");
+            batchvec.push(batch);
+        }
 
-            let (dicts, batch) = flight_data_from_arrow_batch(&batch, &IpcWriteOptions::default());
+        log::info!("batchvec size : {}", batchvec.len());
 
-            let rsp = response_sender.clone();
-            task::spawn_blocking(move || {
-                for dict in dicts {
-                    let result = rsp.blocking_send(Ok(dict));
-                    if let Err(_) = result {
-                        log::error!("failed to send dict...");
-                    }
+        match batches_to_flight_data(&schema, batchvec) {
+            Ok(flight_data_vec) => {
+                for flight_data in flight_data_vec {
+                    let rsp = response_sender.clone();
+                        task::spawn_blocking(move || {
+                                let result = rsp.blocking_send(Ok(flight_data));
+                                if let Err(_) = result {
+                                    log::error!("failed to send flight_data...");
+                                }
+                        });
                 }
-                let result = rsp.blocking_send(Ok(batch));
-                if let Err(_) = result {
-                    log::error!("failed to send data...");
-                }
-            });
+            }
+            Err(arrow_error) => {
+                log::error!("Error converting batches to FlightData: {:?}", arrow_error);
+            }
         }
 
         Ok(())
     }
-}
-
-/// Convert a `RecordBatch` to a vector of `FlightData` representing the bytes of the dictionaries
-/// and a `FlightData` representing the bytes of the batch's values
-fn flight_data_from_arrow_batch(
-    batch: &RecordBatch,
-    options: &IpcWriteOptions,
-) -> (Vec<FlightData>, FlightData) {
-    let data_gen = ipc::writer::IpcDataGenerator::default();
-    let mut dictionary_tracker = ipc::writer::DictionaryTracker::new(false);
-
-    let (encoded_dictionaries, encoded_batch) = data_gen
-        .encoded_batch(batch, &mut dictionary_tracker, options)
-        .expect("DictionaryTracker configured above to not error.rs on replacement");
-
-    let flight_dictionaries = encoded_dictionaries.into_iter().map(Into::into).collect();
-    let flight_batch = encoded_batch.into();
-
-    (flight_dictionaries, flight_batch)
 }
 
 impl From<EncodedData> for FlightData {
