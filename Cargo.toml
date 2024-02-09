@@ -1,6 +1,6 @@
 [package]
 name = "arrow-flightsql-odbc"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Tim Van Wassenhove <tim@timvw.be>"]
 edition = "2021"
 description = "An Apache Arrow Flight SQL server which proxies requests over ODBC"
